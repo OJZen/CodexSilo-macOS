@@ -1,0 +1,46 @@
+name: CodexSilo
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  CodexSilo:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/CodexSilo
+    resources:
+      - path: Sources/CodexSilo/Resources
+    settings:
+      base:
+        PRODUCT_NAME: CodexSilo
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleName: CodexSilo
+        INFOPLIST_KEY_CFBundleDisplayName: CodexSilo
+        INFOPLIST_KEY_LSMinimumSystemVersion: "14.0"
+        INFOPLIST_KEY_LSUIElement: NO
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 5
+        MARKETING_VERSION: 1.0.7
+        DEVELOPMENT_TEAM: KLU8GF65GP
+        PRODUCT_BUNDLE_IDENTIFIER: com.alick.codexsilo
+  CodexSiloTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests/CodexSiloTests
+    dependencies:
+      - target: CodexSilo
+schemes:
+  CodexSilo:
+    build:
+      targets:
+        CodexSilo: all
+        CodexSiloTests: [test]
+    test:
+      targets:
+        - CodexSiloTests
