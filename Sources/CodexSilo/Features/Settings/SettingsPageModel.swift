@@ -5,6 +5,7 @@ import Combine
 final class SettingsPageModel: ObservableObject {
     private let settingsCoordinator: SettingsCoordinator
     private let onSettingsUpdated: @MainActor (AppSettings) -> Void
+    private let onStoreImported: @MainActor (AccountsStore) async -> Void
     private let noticeScheduler = NoticeAutoDismissScheduler()
 
     @Published var settings: AppSettings = .defaultValue
@@ -19,10 +20,12 @@ final class SettingsPageModel: ObservableObject {
 
     init(
         settingsCoordinator: SettingsCoordinator,
-        onSettingsUpdated: @escaping @MainActor (AppSettings) -> Void = { _ in }
+        onSettingsUpdated: @escaping @MainActor (AppSettings) -> Void = { _ in },
+        onStoreImported: @escaping @MainActor (AccountsStore) async -> Void = { _ in }
     ) {
         self.settingsCoordinator = settingsCoordinator
         self.onSettingsUpdated = onSettingsUpdated
+        self.onStoreImported = onStoreImported
     }
 
     func loadIfNeeded() async {
@@ -63,6 +66,36 @@ final class SettingsPageModel: ObservableObject {
 
     func setLocale(_ value: String) {
         Task { await update(AppSettingsPatch(locale: value)) }
+    }
+
+    func exportAccountData(to url: URL, password: String) async -> String? {
+        do {
+            try await settingsCoordinator.exportAccountData(to: url, password: password)
+            notice = NoticeMessage(
+                style: .success,
+                text: L10n.tr("settings.notice.data_exported_format", url.lastPathComponent)
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func importAccountData(from url: URL, password: String) async -> String? {
+        do {
+            let importedStore = try await settingsCoordinator.importAccountData(from: url, password: password)
+            settings = importedStore.settings
+            onSettingsUpdated(settings)
+            hasLoaded = true
+            await onStoreImported(importedStore)
+            notice = NoticeMessage(
+                style: .success,
+                text: L10n.tr("settings.notice.data_imported_format", url.lastPathComponent)
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private func update(_ patch: AppSettingsPatch, successText: String = L10n.tr("settings.notice.updated")) async {

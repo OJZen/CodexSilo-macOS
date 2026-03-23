@@ -32,6 +32,7 @@ struct AppContainer {
 
             let settingsCoordinator = SettingsCoordinator(
                 storeRepository: storeRepository,
+                authRepository: authRepository,
                 launchAtStartupService: launchAtStartupService
             )
             let accountsCoordinator = AccountsCoordinator(
@@ -63,10 +64,38 @@ struct AppContainer {
                 backgroundRefreshPolicy: .forPlatform(PlatformCapabilities.currentPlatform),
                 initialAccounts: initialAccounts
             )
+            let accountsModel = AccountsPageModel(
+                coordinator: accountsCoordinator,
+                manualRefreshService: trayModel,
+                localAccountsMutationSyncService: trayModel,
+                currentAccountSelectionSyncService: nil,
+                onLocalAccountsChanged: { accounts in
+                    trayModel.acceptLocalAccountsSnapshot(accounts)
+                },
+                initialAccounts: initialAccounts,
+                initialOverviewCollapsed: initialStore.accountsOverviewCollapsed
+            )
+            let proxyModel = ProxyPageModel(
+                coordinator: proxyCoordinator,
+                settingsCoordinator: settingsCoordinator,
+                proxyControlCloudSyncService: nil,
+                localProxyCommandService: proxyControlBridge
+            )
             let settingsModel = SettingsPageModel(
                 settingsCoordinator: settingsCoordinator,
                 onSettingsUpdated: { settings in
                     trayModel.applySettings(settings)
+                },
+                onStoreImported: { importedStore in
+                    trayModel.applySettings(importedStore.settings)
+                    trayModel.acceptLocalAccountsSnapshot(
+                        importedStore.accountSummaries(
+                            currentAccountKey: authRepository.currentAuthAccountKey(),
+                            currentVariantKey: authRepository.currentAuthVariantKey()
+                        )
+                    )
+                    await accountsModel.load()
+                    await proxyModel.load()
                 }
             )
             trayModel.applySettings(initialStore.settings)
@@ -80,23 +109,8 @@ struct AppContainer {
             }
 
             return AppContainer(
-                accountsModel: AccountsPageModel(
-                    coordinator: accountsCoordinator,
-                    manualRefreshService: trayModel,
-                    localAccountsMutationSyncService: trayModel,
-                    currentAccountSelectionSyncService: nil,
-                    onLocalAccountsChanged: { accounts in
-                        trayModel.acceptLocalAccountsSnapshot(accounts)
-                    },
-                    initialAccounts: initialAccounts,
-                    initialOverviewCollapsed: initialStore.accountsOverviewCollapsed
-                ),
-                proxyModel: ProxyPageModel(
-                    coordinator: proxyCoordinator,
-                    settingsCoordinator: settingsCoordinator,
-                    proxyControlCloudSyncService: nil,
-                    localProxyCommandService: proxyControlBridge
-                ),
+                accountsModel: accountsModel,
+                proxyModel: proxyModel,
                 settingsModel: settingsModel,
                 trayModel: trayModel,
                 proxyControlBridge: proxyControlBridge
