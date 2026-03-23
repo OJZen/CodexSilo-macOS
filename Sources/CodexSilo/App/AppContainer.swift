@@ -28,7 +28,6 @@ struct AppContainer {
             )
             let chatGPTOAuthLoginService = OpenAIChatGPTOAuthLoginService(configPath: paths.codexConfigPath)
             let codexCLIService = CodexCLIService()
-            let editorAppService = EditorAppService()
             let launchAtStartupService = LaunchAtStartupService()
 
             let settingsCoordinator = SettingsCoordinator(
@@ -41,8 +40,7 @@ struct AppContainer {
                 usageService: usageService,
                 workspaceMetadataService: workspaceMetadataService,
                 chatGPTOAuthLoginService: chatGPTOAuthLoginService,
-                codexCLIService: codexCLIService,
-                editorAppService: editorAppService
+                codexCLIService: codexCLIService
             )
             let initialAccounts = initialStore.accountSummaries(
                 currentAccountKey: authRepository.currentAuthAccountKey(),
@@ -67,7 +65,6 @@ struct AppContainer {
             )
             let settingsModel = SettingsPageModel(
                 settingsCoordinator: settingsCoordinator,
-                editorAppService: editorAppService,
                 onSettingsUpdated: { settings in
                     trayModel.applySettings(settings)
                 }

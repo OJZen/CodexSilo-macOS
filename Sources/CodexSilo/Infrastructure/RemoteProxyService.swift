@@ -378,8 +378,6 @@ final class RemoteProxyService: RemoteProxyServiceProtocol, @unchecked Sendable 
         [
             "launchAtStartup": settings.launchAtStartup,
             "launchCodexAfterSwitch": settings.launchCodexAfterSwitch,
-            "restartEditorsOnSwitch": settings.restartEditorsOnSwitch,
-            "restartEditorTargets": settings.restartEditorTargets.map(\.rawValue),
             "autoStartApiProxy": settings.autoStartApiProxy,
             "remoteServers": [],
             "apiProxyApiKey": NSNull(),

@@ -44,7 +44,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -94,7 +93,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -146,7 +144,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -235,7 +232,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -266,7 +262,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -297,7 +292,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -345,7 +339,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             usageService: usageService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -401,7 +394,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -453,7 +445,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             workspaceMetadataService: metadataService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -546,7 +537,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             usageService: usageService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -648,7 +638,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -657,7 +646,7 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(storeRepository.saveCount, 1)
     }
 
-    func testSwitchAccountAppliesMacSideEffectsInCurrentBuild() async throws {
+    func testSwitchAccountLaunchesCodexAfterSwitchWhenConfigured() async throws {
         let now: Int64 = 1_763_216_000
         let account = StoredAccount(
             id: "acct-1",
@@ -681,15 +670,13 @@ final class AccountsCoordinatorTests: XCTestCase {
                 launchAtStartup: false,
                 launchCodexAfterSwitch: true,
                 autoRefreshAccounts: true,
-                autoSmartSwitch: false,                restartEditorsOnSwitch: true,
-                restartEditorTargets: [.cursor],
+                autoSmartSwitch: false,
                 autoStartApiProxy: false,
                 remoteServers: [],
                 locale: AppLocale.english.identifier
             )
         )
         let codexService = RecordingCodexCLIService()
-        let editorService = RecordingEditorAppService()
         let authRepository = RecordingAuthRepository(currentAccountID: nil)
         let storeRepository = InMemoryAccountsStoreRepository(store: store)
         let coordinator = AccountsCoordinator(
@@ -706,16 +693,13 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: codexService,
-            editorAppService: editorService,
-            dateProvider: FixedDateProvider(now: now),
-            runtimePlatform: .macOS
+            dateProvider: FixedDateProvider(now: now)
         )
 
         _ = try await coordinator.switchAccountAndApplySettings(id: account.id)
 
         XCTAssertEqual(authRepository.writtenAccountCount, 1)
         XCTAssertEqual(codexService.launchCallCount, 1)
-        XCTAssertEqual(editorService.restartCallCount, 1)
         XCTAssertEqual(try storeRepository.loadStore().currentSelection?.accountID, account.accountID)
     }
 
@@ -749,7 +733,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -791,7 +774,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -820,7 +802,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
 
         let initialOverviewCollapsed = try await coordinator.accountsOverviewCollapsed()
@@ -849,7 +830,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -884,7 +864,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
 
         let started = expectation(description: "manual refresh started")
@@ -968,7 +947,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
         let model = TrayMenuModel(
@@ -1050,7 +1028,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
         let model = TrayMenuModel(
@@ -1114,7 +1091,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
         let syncSpy = SpyAccountsLocalMutationSyncService()
         let model = AccountsPageModel(
@@ -1187,7 +1163,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1244,7 +1219,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1320,7 +1294,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1389,7 +1362,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1424,7 +1396,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
         )
 
         do {
@@ -1476,7 +1447,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1535,7 +1505,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1593,7 +1562,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1650,7 +1618,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
-            editorAppService: StubEditorAppService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -2170,25 +2137,5 @@ private final class RecordingCodexCLIService: CodexCLIServiceProtocol, @unchecke
         _ = workspacePath
         launchCallCount += 1
         return false
-    }
-}
-
-private final class StubEditorAppService: EditorAppServiceProtocol, @unchecked Sendable {
-    func listInstalledApps() -> [InstalledEditorApp] { [] }
-    func restartSelectedApps(_ targets: [EditorAppID]) -> (restarted: [EditorAppID], error: String?) {
-        _ = targets
-        return ([], nil)
-    }
-}
-
-private final class RecordingEditorAppService: EditorAppServiceProtocol, @unchecked Sendable {
-    private(set) var restartCallCount = 0
-
-    func listInstalledApps() -> [InstalledEditorApp] { [] }
-
-    func restartSelectedApps(_ targets: [EditorAppID]) -> (restarted: [EditorAppID], error: String?) {
-        _ = targets
-        restartCallCount += 1
-        return ([], nil)
     }
 }

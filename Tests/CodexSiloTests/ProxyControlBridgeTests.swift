@@ -49,8 +49,6 @@ final class ProxyControlBridgeTests: XCTestCase {
                     launchCodexAfterSwitch: true,
                     autoRefreshAccounts: true,
                     autoSmartSwitch: false,
-                    restartEditorsOnSwitch: false,
-                    restartEditorTargets: [],
                     autoStartApiProxy: false,
                     remoteServers: [makeRemoteServer()],
                     locale: AppLocale.systemDefault.identifier
@@ -80,8 +78,6 @@ final class ProxyControlBridgeTests: XCTestCase {
                     launchCodexAfterSwitch: true,
                     autoRefreshAccounts: true,
                     autoSmartSwitch: false,
-                    restartEditorsOnSwitch: false,
-                    restartEditorTargets: [],
                     autoStartApiProxy: false,
                     remoteServers: [
                         makeRemoteServer(id: "server-1", label: "Tokyo"),

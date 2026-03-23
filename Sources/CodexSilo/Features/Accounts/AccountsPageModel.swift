@@ -423,25 +423,13 @@ final class AccountsPageModel: ObservableObject {
     }
 
     private func buildSwitchNotice(execution: SwitchAccountExecutionResult) -> NoticeMessage {
-        var style: NoticeStyle = .success
-        var segments: [String] = []
-
         if execution.usedFallbackCLI {
-            style = .info
-            segments.append(L10n.tr("accounts.notice.switch_done_fallback"))
-        } else {
-            segments.append(L10n.tr("accounts.notice.switch_done"))
+            return NoticeMessage(
+                style: .info,
+                text: L10n.tr("accounts.notice.switch_done_fallback")
+            )
         }
-
-        if let restartError = execution.editorRestartError, !restartError.isEmpty {
-            style = .error
-            segments.append(L10n.tr("accounts.notice.editor_restart_failed_format", restartError))
-        } else if !execution.restartedEditorApps.isEmpty {
-            let names = execution.restartedEditorApps.map(\.rawValue).joined(separator: " / ")
-            segments.append(L10n.tr("accounts.notice.editor_restarted_format", names))
-        }
-
-        return NoticeMessage(style: style, text: segments.joined(separator: " · "))
+        return NoticeMessage(style: .success, text: L10n.tr("accounts.notice.switch_done"))
     }
 
     private func applyAccounts(_ accounts: [AccountSummary]) {

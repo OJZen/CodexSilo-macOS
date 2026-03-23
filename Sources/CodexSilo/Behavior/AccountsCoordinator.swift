@@ -39,9 +39,7 @@ actor AccountsCoordinator {
     private let workspaceMetadataService: WorkspaceMetadataService?
     private let chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol
     private let codexCLIService: CodexCLIServiceProtocol
-    private let editorAppService: EditorAppServiceProtocol
     private let dateProvider: DateProviding
-    private let runtimePlatform: RuntimePlatform
     private var accountsListCache: AccountsListCache?
 
     init(
@@ -51,9 +49,7 @@ actor AccountsCoordinator {
         workspaceMetadataService: WorkspaceMetadataService? = nil,
         chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
         codexCLIService: CodexCLIServiceProtocol,
-        editorAppService: EditorAppServiceProtocol,
-        dateProvider: DateProviding = SystemDateProvider(),
-        runtimePlatform: RuntimePlatform = PlatformCapabilities.currentPlatform
+        dateProvider: DateProviding = SystemDateProvider()
     ) {
         self.storeRepository = storeRepository
         self.authRepository = authRepository
@@ -61,9 +57,7 @@ actor AccountsCoordinator {
         self.workspaceMetadataService = workspaceMetadataService
         self.chatGPTOAuthLoginService = chatGPTOAuthLoginService
         self.codexCLIService = codexCLIService
-        self.editorAppService = editorAppService
         self.dateProvider = dateProvider
-        self.runtimePlatform = runtimePlatform
     }
 
     func listAccounts() async throws -> [AccountSummary] {
@@ -348,11 +342,7 @@ actor AccountsCoordinator {
         }
 
         try updateCurrentAccountProjection(account)
-        return try applySwitchSideEffects(
-            for: account,
-            settings: store.settings,
-            workspacePath: workspacePath
-        )
+        return try applySwitchSideEffects(settings: store.settings, workspacePath: workspacePath)
     }
 
     func smartSwitch() async throws -> (AccountSummary, SwitchAccountExecutionResult)? {
@@ -807,17 +797,10 @@ actor AccountsCoordinator {
     #endif
 
     private func applySwitchSideEffects(
-        for account: StoredAccount,
         settings: AppSettings,
         workspacePath: String?
     ) throws -> SwitchAccountExecutionResult {
         var result = SwitchAccountExecutionResult.idle
-
-        if settings.restartEditorsOnSwitch {
-            let restart = editorAppService.restartSelectedApps(settings.restartEditorTargets)
-            result.restartedEditorApps = restart.restarted
-            result.editorRestartError = restart.error
-        }
 
         if settings.launchCodexAfterSwitch {
             result.usedFallbackCLI = try codexCLIService.launchApp(workspacePath: workspacePath)

@@ -65,11 +65,6 @@ protocol ChatGPTOAuthLoginServiceProtocol: Sendable {
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens
 }
 
-protocol EditorAppServiceProtocol: Sendable {
-    func listInstalledApps() -> [InstalledEditorApp]
-    func restartSelectedApps(_ targets: [EditorAppID]) -> (restarted: [EditorAppID], error: String?)
-}
-
 protocol LaunchAtStartupServiceProtocol: Sendable {
     func setEnabled(_ enabled: Bool) throws
     func syncWithStoreValue(_ enabled: Bool) throws

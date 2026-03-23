@@ -80,7 +80,6 @@
 		C0040E924E495A9B4DCF7EBE /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3692DEACD953D34AF240F6ED /* EmptyStateView.swift */; };
 		C1689CF8BC0D6EBC84B515ED /* AccountsCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85BEA62E5EB96361AD117627 /* AccountsCoordinatorTests.swift */; };
 		C4AEB739AA9D4A84ABBB9E21 /* ProxyControlBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10B6B54D0E14B9CB2CB0A71 /* ProxyControlBridgeTests.swift */; };
-		CA37BD95DACA443113BF6EC6 /* EditorAppService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5358263820EB410620C79AB /* EditorAppService.swift */; };
 		D0611DC1C82F7B37B8D91040 /* ProxyPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AE6ECBCE990356DEB5BBE0 /* ProxyPageView.swift */; };
 		D0611DC1C82F7B37B8D91041 /* PlatformClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A105A105A105A105A105A105 /* PlatformClipboard.swift */; };
 		D0D721335F066D21AAAD652D /* FileSystemPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D518BC8C9103B4FD9C16B27 /* FileSystemPaths.swift */; };
@@ -193,7 +192,6 @@
 		C10E7339F7656FE20240B3B8 /* UsageWindowSelectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageWindowSelectorTests.swift; sourceTree = "<group>"; };
 		C36FDB8D2542926806D5B265 /* ViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewState.swift; sourceTree = "<group>"; };
 		C4F7246044D6E322F548D954 /* OpenAIChatGPTOAuthLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIChatGPTOAuthLoginService.swift; sourceTree = "<group>"; };
-		C5358263820EB410620C79AB /* EditorAppService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorAppService.swift; sourceTree = "<group>"; };
 		D16220C69646464B343B782F /* auth.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = auth.rs; sourceTree = "<group>"; };
 		D3AE6ECBCE990356DEB5BBE0 /* ProxyPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPageView.swift; sourceTree = "<group>"; };
 		D42AE96D25E97F39B6AAB9A8 /* ProxyPageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPageModel.swift; sourceTree = "<group>"; };
@@ -237,7 +235,6 @@
 				2DD2673A9712C55D302564FA /* DefaultUsageService.swift */,
 				95E85D9244A64A8BB6AB5F11 /* DefaultWorkspaceMetadataService.swift */,
 				26C8D1A13F4D46AAB7E2A110 /* EndpointRequestCoordinator.swift */,
-				C5358263820EB410620C79AB /* EditorAppService.swift */,
 				1D518BC8C9103B4FD9C16B27 /* FileSystemPaths.swift */,
 				2E875E904D3ADACBDBF66C1D /* GitHubUpdateService.swift */,
 				BCFDDF034C6446339DDFAF9B /* LaunchAtStartupService.swift */,
@@ -635,7 +632,6 @@
 				FA624CCECA28D7F68B1C0FF8 /* DefaultUsageService.swift in Sources */,
 				FA8F4B3E19ED4AA8B7740F31 /* DefaultWorkspaceMetadataService.swift in Sources */,
 				FA8F4B3E19ED4AA8B7740F32 /* EndpointRequestCoordinator.swift in Sources */,
-				CA37BD95DACA443113BF6EC6 /* EditorAppService.swift in Sources */,
 				C0040E924E495A9B4DCF7EBE /* EmptyStateView.swift in Sources */,
 				D0D721335F066D21AAAD652D /* FileSystemPaths.swift in Sources */,
 				75C5CBC7206160F013685830 /* GitHubUpdateService.swift in Sources */,

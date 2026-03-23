@@ -43,4 +43,12 @@ final class AppSettingsCodableTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.locale, AppLocale.automatic.identifier)
     }
+
+    func testEncodeSettingsOmitsLegacyEditorRestartKeys() throws {
+        let data = try JSONEncoder().encode(AppSettings.defaultValue)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertFalse(json.contains("restartEditorsOnSwitch"))
+        XCTAssertFalse(json.contains("restartEditorTargets"))
+    }
 }

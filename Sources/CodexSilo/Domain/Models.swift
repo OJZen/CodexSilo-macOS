@@ -542,32 +542,11 @@ struct ChatGPTOAuthTokens: Equatable, Sendable {
     var apiKey: String?
 }
 
-enum EditorAppID: String, Codable, CaseIterable, Identifiable {
-    case vscode
-    case vscodeInsiders
-    case cursor
-    case antigravity
-    case kiro
-    case trae
-    case qoder
-
-    var id: String { rawValue }
-}
-
-struct InstalledEditorApp: Equatable, Identifiable {
-    var id: EditorAppID
-    var label: String
-}
-
 struct SwitchAccountExecutionResult: Equatable {
     var usedFallbackCLI: Bool
-    var restartedEditorApps: [EditorAppID]
-    var editorRestartError: String?
 
     static let idle = SwitchAccountExecutionResult(
-        usedFallbackCLI: false,
-        restartedEditorApps: [],
-        editorRestartError: nil
+        usedFallbackCLI: false
     )
 }
 
@@ -590,8 +569,6 @@ struct AppSettings: Codable, Equatable {
     var launchCodexAfterSwitch: Bool
     var autoRefreshAccounts: Bool
     var autoSmartSwitch: Bool
-    var restartEditorsOnSwitch: Bool
-    var restartEditorTargets: [EditorAppID]
     var autoStartApiProxy: Bool
     var remoteServers: [RemoteServerConfig]
     var locale: String
@@ -601,8 +578,6 @@ struct AppSettings: Codable, Equatable {
         case launchCodexAfterSwitch
         case autoRefreshAccounts
         case autoSmartSwitch
-        case restartEditorsOnSwitch
-        case restartEditorTargets
         case autoStartApiProxy
         case remoteServers
         case locale
@@ -613,8 +588,6 @@ struct AppSettings: Codable, Equatable {
         launchCodexAfterSwitch: Bool,
         autoRefreshAccounts: Bool,
         autoSmartSwitch: Bool,
-        restartEditorsOnSwitch: Bool,
-        restartEditorTargets: [EditorAppID],
         autoStartApiProxy: Bool,
         remoteServers: [RemoteServerConfig],
         locale: String
@@ -623,8 +596,6 @@ struct AppSettings: Codable, Equatable {
         self.launchCodexAfterSwitch = launchCodexAfterSwitch
         self.autoRefreshAccounts = autoRefreshAccounts
         self.autoSmartSwitch = autoSmartSwitch
-        self.restartEditorsOnSwitch = restartEditorsOnSwitch
-        self.restartEditorTargets = restartEditorTargets
         self.autoStartApiProxy = autoStartApiProxy
         self.remoteServers = remoteServers
         self.locale = AppLocale.resolve(locale).identifier
@@ -638,8 +609,6 @@ struct AppSettings: Codable, Equatable {
         launchCodexAfterSwitch = try container.decodeIfPresent(Bool.self, forKey: .launchCodexAfterSwitch) ?? fallback.launchCodexAfterSwitch
         autoRefreshAccounts = try container.decodeIfPresent(Bool.self, forKey: .autoRefreshAccounts) ?? fallback.autoRefreshAccounts
         autoSmartSwitch = try container.decodeIfPresent(Bool.self, forKey: .autoSmartSwitch) ?? fallback.autoSmartSwitch
-        restartEditorsOnSwitch = try container.decodeIfPresent(Bool.self, forKey: .restartEditorsOnSwitch) ?? fallback.restartEditorsOnSwitch
-        restartEditorTargets = try container.decodeIfPresent([EditorAppID].self, forKey: .restartEditorTargets) ?? fallback.restartEditorTargets
         autoStartApiProxy = try container.decodeIfPresent(Bool.self, forKey: .autoStartApiProxy) ?? fallback.autoStartApiProxy
         remoteServers = try container.decodeIfPresent([RemoteServerConfig].self, forKey: .remoteServers) ?? fallback.remoteServers
 
@@ -653,8 +622,6 @@ struct AppSettings: Codable, Equatable {
         try container.encode(launchCodexAfterSwitch, forKey: .launchCodexAfterSwitch)
         try container.encode(autoRefreshAccounts, forKey: .autoRefreshAccounts)
         try container.encode(autoSmartSwitch, forKey: .autoSmartSwitch)
-        try container.encode(restartEditorsOnSwitch, forKey: .restartEditorsOnSwitch)
-        try container.encode(restartEditorTargets, forKey: .restartEditorTargets)
         try container.encode(autoStartApiProxy, forKey: .autoStartApiProxy)
         try container.encode(remoteServers, forKey: .remoteServers)
         try container.encode(locale, forKey: .locale)
@@ -666,8 +633,6 @@ struct AppSettings: Codable, Equatable {
             launchCodexAfterSwitch: true,
             autoRefreshAccounts: true,
             autoSmartSwitch: false,
-            restartEditorsOnSwitch: false,
-            restartEditorTargets: [],
             autoStartApiProxy: false,
             remoteServers: [],
             locale: AppLocale.automatic.identifier
@@ -680,8 +645,6 @@ struct AppSettingsPatch {
     var launchCodexAfterSwitch: Bool? = nil
     var autoRefreshAccounts: Bool? = nil
     var autoSmartSwitch: Bool? = nil
-    var restartEditorsOnSwitch: Bool? = nil
-    var restartEditorTargets: [EditorAppID]? = nil
     var autoStartApiProxy: Bool? = nil
     var remoteServers: [RemoteServerConfig]? = nil
     var locale: String? = nil

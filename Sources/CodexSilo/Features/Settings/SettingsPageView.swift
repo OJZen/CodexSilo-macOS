@@ -88,28 +88,6 @@ struct SettingsPageView: View {
                 Label("settings.auto_smart_switch", systemImage: "sparkles")
             }
             .toggleStyle(.switch)
-
-            Toggle(isOn: Binding(
-                get: { model.settings.restartEditorsOnSwitch },
-                set: { model.setRestartEditorsOnSwitch($0) }
-            )) {
-                Label("settings.restart_editors_on_switch", systemImage: "arrow.clockwise.square")
-            }
-            .toggleStyle(.switch)
-
-            Picker(selection: Binding(
-                get: { model.settings.restartEditorTargets.first },
-                set: { model.setRestartEditorTarget($0) }
-            )) {
-                Text("common.none").tag(EditorAppID?.none)
-                ForEach(model.installedEditorApps) { app in
-                    Text(app.label).tag(EditorAppID?.some(app.id))
-                }
-            } label: {
-                Label("settings.editor_restart_target", systemImage: "app.badge")
-            }
-            .pickerStyle(.menu)
-            .disabled(!model.settings.restartEditorsOnSwitch || model.installedEditorApps.isEmpty)
         } header: {
             Label(L10n.tr("settings.section.switch_behavior"), systemImage: "arrow.left.arrow.right.circle")
         }

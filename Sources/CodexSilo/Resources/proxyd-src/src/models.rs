@@ -88,8 +88,6 @@ pub(crate) struct SwitchAccountResult {
     pub(crate) account_id: String,
     pub(crate) launched_app_path: Option<String>,
     pub(crate) used_fallback_cli: bool,
-    pub(crate) restarted_editor_apps: Vec<EditorAppId>,
-    pub(crate) editor_restart_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -213,18 +211,6 @@ pub(crate) enum TrayUsageDisplayMode {
     Remaining,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum EditorAppId {
-    Vscode,
-    VscodeInsiders,
-    Cursor,
-    Antigravity,
-    Kiro,
-    Trae,
-    Qoder,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub(crate) enum AppLocale {
     #[default]
@@ -240,21 +226,12 @@ pub(crate) enum AppLocale {
     RuRu,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct InstalledEditorApp {
-    pub(crate) id: EditorAppId,
-    pub(crate) label: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct AppSettings {
     pub(crate) launch_at_startup: bool,
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     pub(crate) launch_codex_after_switch: bool,
-    pub(crate) restart_editors_on_switch: bool,
-    pub(crate) restart_editor_targets: Vec<EditorAppId>,
     pub(crate) auto_start_api_proxy: bool,
     pub(crate) remote_servers: Vec<RemoteServerConfig>,
     pub(crate) api_proxy_api_key: Option<String>,
@@ -267,8 +244,6 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
             launch_codex_after_switch: true,
-            restart_editors_on_switch: false,
-            restart_editor_targets: Vec::new(),
             auto_start_api_proxy: false,
             remote_servers: Vec::new(),
             api_proxy_api_key: None,
@@ -283,8 +258,6 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) launch_codex_after_switch: Option<bool>,
-    pub(crate) restart_editors_on_switch: Option<bool>,
-    pub(crate) restart_editor_targets: Option<Vec<EditorAppId>>,
     pub(crate) auto_start_api_proxy: Option<bool>,
     pub(crate) remote_servers: Option<Vec<RemoteServerConfig>>,
     pub(crate) locale: Option<AppLocale>,
