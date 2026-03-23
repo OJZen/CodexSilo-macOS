@@ -1,7 +1,7 @@
 # CodexSilo
 
 <p align="center">
-  <img src="./CodexSilo.png" alt="CodexSilo Icon" width="160" />
+  <img src="./Sources/CodexSilo/Resources/app_icon.png" alt="CodexSilo App Icon" width="160" />
 </p>
 
 <p align="center">
@@ -18,13 +18,6 @@
 - 需要把账号能力以本地 API 的形式提供给其他工具或脚本
 
 CodexSilo 的目标，就是把这些工作流收进一个原生 macOS 应用里。
-
-## 预览
-
-<img src="./account.png" alt="Accounts Overview" width="720" />
-<img src="./account_2.png" alt="Accounts Detail" width="720" />
-<img src="./proxy.png" alt="Proxy" width="720" />
-<img src="./setting.png" alt="Settings" width="720" />
 
 ## 核心能力
 
