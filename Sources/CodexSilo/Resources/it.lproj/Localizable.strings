@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Azioni rapide";
 "accounts.action.collapse_all" = "Comprimi tutte le schede";
 "accounts.action.expand_all" = "Espandi tutte le schede";
+"accounts.sort.label" = "Ordina";
+"accounts.sort.remaining_usage" = "Per utilizzo residuo";
+"accounts.sort.account_name" = "Per nome account";
+"accounts.sort.email" = "Per e-mail";
+"accounts.sort.team_name" = "Per nome del team";
 "accounts.empty.title" = "Nessun account";
 "accounts.empty.message.no_accounts" = "Ancora nessun account. Aggiungi o importa un account per iniziare.";
 "accounts.error.load_failed" = "Impossibile caricare gli account";

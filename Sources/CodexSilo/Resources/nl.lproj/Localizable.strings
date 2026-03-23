@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Snelle acties";
 "accounts.action.collapse_all" = "Alle kaarten inklappen";
 "accounts.action.expand_all" = "Alle kaarten uitklappen";
+"accounts.sort.label" = "Sorteren";
+"accounts.sort.remaining_usage" = "Op resterend gebruik";
+"accounts.sort.account_name" = "Op accountnaam";
+"accounts.sort.email" = "Op e-mail";
+"accounts.sort.team_name" = "Op teamnaam";
 "accounts.empty.title" = "Geen accounts";
 "accounts.empty.message.no_accounts" = "Nog geen accounts. Voeg een account toe of importeer er een om te beginnen.";
 "accounts.error.load_failed" = "Accounts laden mislukt";

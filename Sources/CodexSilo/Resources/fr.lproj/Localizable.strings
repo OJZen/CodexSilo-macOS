@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Actions rapides";
 "accounts.action.collapse_all" = "Réduire toutes les cartes";
 "accounts.action.expand_all" = "Développer toutes les cartes";
+"accounts.sort.label" = "Trier";
+"accounts.sort.remaining_usage" = "Par usage restant";
+"accounts.sort.account_name" = "Par nom du compte";
+"accounts.sort.email" = "Par e-mail";
+"accounts.sort.team_name" = "Par nom d'équipe";
 "accounts.empty.title" = "Aucun compte";
 "accounts.empty.message.no_accounts" = "Aucun compte pour l'instant. Ajoutez ou importez un compte pour commencer.";
 "accounts.error.load_failed" = "Échec du chargement des comptes";

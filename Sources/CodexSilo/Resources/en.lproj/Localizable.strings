@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Quick actions";
 "accounts.action.collapse_all" = "Collapse all cards";
 "accounts.action.expand_all" = "Expand all cards";
+"accounts.sort.label" = "Sort";
+"accounts.sort.remaining_usage" = "By remaining usage";
+"accounts.sort.account_name" = "By account name";
+"accounts.sort.email" = "By email";
+"accounts.sort.team_name" = "By team name";
 "accounts.empty.title" = "No accounts";
 "accounts.empty.message.no_accounts" = "No accounts yet. Add or import an account to get started.";
 "accounts.error.load_failed" = "Failed to load accounts";

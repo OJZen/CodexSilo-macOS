@@ -99,7 +99,7 @@ struct AccountsActionBarView: View {
                     Text(mode.title).tag(mode)
                 }
             } label: {
-                Label("排序", systemImage: "arrow.up.arrow.down")
+                Label(L10n.tr("accounts.sort.label"), systemImage: "arrow.up.arrow.down")
                     .lineLimit(1)
             }
             .pickerStyle(.menu)

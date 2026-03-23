@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "快捷操作";
 "accounts.action.collapse_all" = "收起全部卡片";
 "accounts.action.expand_all" = "展開全部卡片";
+"accounts.sort.label" = "排序";
+"accounts.sort.remaining_usage" = "按剩餘用量";
+"accounts.sort.account_name" = "按帳戶名稱";
+"accounts.sort.email" = "按電子郵件";
+"accounts.sort.team_name" = "按團隊名稱";
 "accounts.empty.title" = "尚無帳號";
 "accounts.empty.message.no_accounts" = "尚無帳號，請先新增或匯入帳號。";
 "accounts.error.load_failed" = "載入帳號失敗";

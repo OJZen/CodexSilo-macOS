@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "快捷操作";
 "accounts.action.collapse_all" = "收起全部卡片";
 "accounts.action.expand_all" = "展开全部卡片";
+"accounts.sort.label" = "排序";
+"accounts.sort.remaining_usage" = "按剩余用量";
+"accounts.sort.account_name" = "按账户名称";
+"accounts.sort.email" = "按邮箱";
+"accounts.sort.team_name" = "按团队名称";
 "accounts.empty.title" = "暂无账号";
 "accounts.empty.message.no_accounts" = "暂无账号，请添加或导入账号";
 "accounts.error.load_failed" = "账号加载失败";

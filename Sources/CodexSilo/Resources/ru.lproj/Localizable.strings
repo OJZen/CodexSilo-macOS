@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Быстрые действия";
 "accounts.action.collapse_all" = "Свернуть все карточки";
 "accounts.action.expand_all" = "Развернуть все карточки";
+"accounts.sort.label" = "Сортировка";
+"accounts.sort.remaining_usage" = "По оставшемуся лимиту";
+"accounts.sort.account_name" = "По имени аккаунта";
+"accounts.sort.email" = "По электронной почте";
+"accounts.sort.team_name" = "По названию команды";
 "accounts.empty.title" = "Нет аккаунтов";
 "accounts.empty.message.no_accounts" = "Аккаунтов пока нет. Добавьте или импортируйте аккаунт, чтобы начать.";
 "accounts.error.load_failed" = "Не удалось загрузить аккаунты";

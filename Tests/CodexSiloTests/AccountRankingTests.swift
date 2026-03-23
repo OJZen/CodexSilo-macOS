@@ -2,6 +2,11 @@ import XCTest
 @testable import CodexSilo
 
 final class AccountRankingTests: XCTestCase {
+    override func tearDown() {
+        L10n.setLocale(identifier: AppLocale.english.identifier)
+        super.tearDown()
+    }
+
     func testPickBestAccountChoosesMostRemainingQuota() {
         let best = makeAccount(id: "a", weekUsed: 15, hourUsed: 30)
         let medium = makeAccount(id: "b", weekUsed: 40, hourUsed: 30)
@@ -86,6 +91,14 @@ final class AccountRankingTests: XCTestCase {
         let target = AccountRanking.pickAutoSwitchTarget([current])
 
         XCTAssertNil(target)
+    }
+
+    func testSortModeTitlesDefaultToLocalizedEnglishStrings() {
+        L10n.setLocale(identifier: AppLocale.english.identifier)
+        XCTAssertEqual(AccountsSortMode.remainingUsage.title, "By remaining usage")
+        XCTAssertEqual(AccountsSortMode.accountName.title, "By account name")
+        XCTAssertEqual(AccountsSortMode.emailName.title, "By email")
+        XCTAssertEqual(AccountsSortMode.teamName.title, "By team name")
     }
 
     private func makeAccount(

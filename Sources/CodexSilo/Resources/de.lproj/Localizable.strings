@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Schnellaktionen";
 "accounts.action.collapse_all" = "Alle Karten einklappen";
 "accounts.action.expand_all" = "Alle Karten ausklappen";
+"accounts.sort.label" = "Sortieren";
+"accounts.sort.remaining_usage" = "Nach verbleibendem Kontingent";
+"accounts.sort.account_name" = "Nach Kontoname";
+"accounts.sort.email" = "Nach E-Mail";
+"accounts.sort.team_name" = "Nach Teamname";
 "accounts.empty.title" = "Keine Konten";
 "accounts.empty.message.no_accounts" = "Noch keine Konten. Fügen Sie ein Konto hinzu oder importieren Sie eines.";
 "accounts.error.load_failed" = "Konten konnten nicht geladen werden";

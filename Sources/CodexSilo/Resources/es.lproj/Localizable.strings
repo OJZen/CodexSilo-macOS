@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "Acciones rápidas";
 "accounts.action.collapse_all" = "Colapsar todas las tarjetas";
 "accounts.action.expand_all" = "Expandir todas las tarjetas";
+"accounts.sort.label" = "Ordenar";
+"accounts.sort.remaining_usage" = "Por uso restante";
+"accounts.sort.account_name" = "Por nombre de cuenta";
+"accounts.sort.email" = "Por correo electrónico";
+"accounts.sort.team_name" = "Por nombre del equipo";
 "accounts.empty.title" = "Sin cuentas";
 "accounts.empty.message.no_accounts" = "Todavía no hay cuentas. Añade o importa una cuenta para comenzar.";
 "accounts.error.load_failed" = "No se pudieron cargar las cuentas";

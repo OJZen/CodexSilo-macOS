@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "クイック操作";
 "accounts.action.collapse_all" = "全カードを折りたたむ";
 "accounts.action.expand_all" = "全カードを展開";
+"accounts.sort.label" = "並び替え";
+"accounts.sort.remaining_usage" = "残量順";
+"accounts.sort.account_name" = "アカウント名順";
+"accounts.sort.email" = "メール順";
+"accounts.sort.team_name" = "チーム名順";
 "accounts.empty.title" = "アカウントがありません";
 "accounts.empty.message.no_accounts" = "アカウントがありません。追加または取り込みを行ってください。";
 "accounts.error.load_failed" = "アカウントの読み込みに失敗しました";

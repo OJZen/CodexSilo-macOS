@@ -8,17 +8,21 @@ enum AccountsSortMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var titleKey: String {
         switch self {
         case .remainingUsage:
-            "按剩余用量"
+            "accounts.sort.remaining_usage"
         case .accountName:
-            "按账户名称"
+            "accounts.sort.account_name"
         case .emailName:
-            "按邮箱名称"
+            "accounts.sort.email"
         case .teamName:
-            "按团队名称"
+            "accounts.sort.team_name"
         }
+    }
+
+    var title: String {
+        L10n.tr(titleKey)
     }
 }
 

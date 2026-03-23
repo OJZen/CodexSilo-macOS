@@ -73,6 +73,11 @@
 "accounts.action.quick_actions" = "빠른 동작";
 "accounts.action.collapse_all" = "모든 카드 접기";
 "accounts.action.expand_all" = "모든 카드 펼치기";
+"accounts.sort.label" = "정렬";
+"accounts.sort.remaining_usage" = "남은 사용량순";
+"accounts.sort.account_name" = "계정 이름순";
+"accounts.sort.email" = "이메일순";
+"accounts.sort.team_name" = "팀 이름순";
 "accounts.empty.title" = "계정이 없습니다";
 "accounts.empty.message.no_accounts" = "계정이 없습니다. 계정을 추가하거나 가져오세요.";
 "accounts.error.load_failed" = "계정을 불러오지 못했습니다";
