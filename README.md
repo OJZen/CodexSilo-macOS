@@ -29,30 +29,16 @@
 - macOS 14+
 - 支持 Swift 6 的 Xcode
 
-## 开发
+## 运行
 
-### 打开工程
+直接用 Xcode 打开 `CodexSilo.xcodeproj`，选择 `CodexSilo` scheme 运行即可。
 
-```bash
-open CodexSilo.xcodeproj
-```
+首次运行前，请先在 Xcode 的 Signing 设置里把 `Development Team` 改成你自己的开发者账号。
 
-### 构建
-
-```bash
-xcodebuild -project CodexSilo.xcodeproj -scheme CodexSilo -configuration Debug -destination 'platform=macOS' build
-```
-
-### 测试
+如需跑测试：
 
 ```bash
 swift test
-```
-
-或：
-
-```bash
-xcodebuild test -project CodexSilo.xcodeproj -scheme CodexSilo -destination 'platform=macOS'
 ```
 
 ### 项目结构
