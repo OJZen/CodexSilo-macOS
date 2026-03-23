@@ -11,7 +11,6 @@ enum PlatformCapabilities {
     static var supportsLaunchAtStartup: Bool { true }
     static var supportsShellCommands: Bool { true }
     static var supportsCodexCLI: Bool { true }
-    static var supportsCloudflared: Bool { true }
     static var supportsRemoteShellManagement: Bool { true }
 
     static let unsupportedOperationMessage = "This operation is unavailable in the current CodexSilo build."

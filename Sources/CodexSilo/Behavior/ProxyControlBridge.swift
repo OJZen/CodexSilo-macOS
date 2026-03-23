@@ -63,7 +63,7 @@ actor ProxyControlBridge: ProxyLocalCommandServiceProtocol {
                 scheduleRemoteStatusRefreshIfNeeded(force: cachedRemoteStatuses.isEmpty)
             } catch {
                 #if DEBUG
-                // print("CloudKit proxy push subscription skipped:", error.localizedDescription)
+                // print("Proxy push subscription skipped:", error.localizedDescription)
                 #endif
             }
         }
@@ -176,9 +176,7 @@ actor ProxyControlBridge: ProxyLocalCommandServiceProtocol {
         if forceRemoteStatusRefresh {
             scheduleRemoteStatusRefreshIfNeeded(force: true)
         }
-        let pair = await proxyCoordinator.loadStatus()
-        let proxyStatus = pair.0
-        let cloudflaredStatus = pair.1
+        let proxyStatus = await proxyCoordinator.loadStatus()
 
         return ProxyControlSnapshot(
             syncedAt: dateProvider.unixMillisecondsNow(),
@@ -186,16 +184,6 @@ actor ProxyControlBridge: ProxyLocalCommandServiceProtocol {
             proxyStatus: proxyStatus,
             preferredProxyPort: proxyStatus.port ?? RemoteServerConfiguration.defaultProxyPort,
             autoStartProxy: settings.autoStartApiProxy,
-            cloudflaredStatus: cloudflaredStatus,
-            cloudflaredTunnelMode: cloudflaredStatus.tunnelMode ?? .quick,
-            cloudflaredNamedInput: NamedCloudflaredTunnelInput(
-                apiToken: "",
-                accountID: "",
-                zoneID: "",
-                hostname: cloudflaredStatus.customHostname ?? ""
-            ),
-            cloudflaredUseHTTP2: cloudflaredStatus.useHTTP2,
-            publicAccessEnabled: cloudflaredStatus.running,
             remoteServers: settings.remoteServers,
             remoteStatusesSyncedAt: lastRemoteStatusRefreshAt,
             remoteStatuses: remoteStatuses,
@@ -322,21 +310,6 @@ actor ProxyControlBridge: ProxyLocalCommandServiceProtocol {
             _ = try await settingsCoordinator.updateSettings(
                 AppSettingsPatch(autoStartApiProxy: command.autoStartProxy ?? false)
             )
-            return .noRemoteStatusRefresh
-        case .installCloudflared:
-            _ = try await proxyCoordinator.installCloudflared()
-            return .noRemoteStatusRefresh
-        case .startCloudflared:
-            guard let input = command.cloudflaredInput else {
-                throw AppError.invalidData("Missing cloudflared input.")
-            }
-            _ = try await proxyCoordinator.startCloudflared(input: input)
-            return .noRemoteStatusRefresh
-        case .stopCloudflared:
-            _ = await proxyCoordinator.stopCloudflared()
-            return .noRemoteStatusRefresh
-        case .refreshCloudflared:
-            _ = await proxyCoordinator.refreshCloudflared()
             return .noRemoteStatusRefresh
         case .addRemoteServer:
             let draft = command.remoteServer ?? RemoteServerConfiguration.makeDraft()

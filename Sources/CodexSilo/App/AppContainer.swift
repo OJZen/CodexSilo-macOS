@@ -21,7 +21,6 @@ struct AppContainer {
                 storeRepository: storeRepository,
                 authRepository: authRepository
             )
-            let cloudflaredService = CloudflaredService(paths: paths)
             let remoteService = RemoteProxyService(
                 repoRoot: RepositoryLocator.findRepoRoot(startingAt: URL(fileURLWithPath: #filePath)),
                 sourceAccountStorePath: paths.accountStorePath,
@@ -30,15 +29,7 @@ struct AppContainer {
             let chatGPTOAuthLoginService = OpenAIChatGPTOAuthLoginService(configPath: paths.codexConfigPath)
             let codexCLIService = CodexCLIService()
             let editorAppService = EditorAppService()
-            let opencodeSyncService = OpencodeAuthSyncService()
             let launchAtStartupService = LaunchAtStartupService()
-            let cloudSyncService = CloudKitAccountsSyncService(storeRepository: storeRepository)
-            let cloudSyncAvailabilityService = CloudSyncAvailabilityService()
-            let proxyControlCloudSyncService = CloudKitProxyControlSyncService()
-            let currentAccountSelectionSyncService = CloudKitCurrentAccountSelectionSyncService(
-                storeRepository: storeRepository,
-                authRepository: authRepository
-            )
 
             let settingsCoordinator = SettingsCoordinator(
                 storeRepository: storeRepository,
@@ -51,8 +42,7 @@ struct AppContainer {
                 workspaceMetadataService: workspaceMetadataService,
                 chatGPTOAuthLoginService: chatGPTOAuthLoginService,
                 codexCLIService: codexCLIService,
-                editorAppService: editorAppService,
-                opencodeAuthSyncService: opencodeSyncService
+                editorAppService: editorAppService
             )
             let initialAccounts = initialStore.accountSummaries(
                 currentAccountKey: authRepository.currentAuthAccountKey(),
@@ -60,19 +50,18 @@ struct AppContainer {
             )
             let proxyCoordinator = ProxyCoordinator(
                 proxyService: proxyService,
-                cloudflaredService: cloudflaredService,
                 remoteService: remoteService
             )
             let proxyControlBridge = ProxyControlBridge(
                 proxyCoordinator: proxyCoordinator,
                 settingsCoordinator: settingsCoordinator,
-                cloudSyncService: proxyControlCloudSyncService
+                cloudSyncService: nil
             )
             let trayModel = TrayMenuModel(
                 accountsCoordinator: accountsCoordinator,
                 settingsCoordinator: settingsCoordinator,
-                cloudSyncService: cloudSyncService,
-                currentAccountSelectionSyncService: currentAccountSelectionSyncService,
+                cloudSyncService: nil,
+                currentAccountSelectionSyncService: nil,
                 backgroundRefreshPolicy: .forPlatform(PlatformCapabilities.currentPlatform),
                 initialAccounts: initialAccounts
             )
@@ -98,8 +87,7 @@ struct AppContainer {
                     coordinator: accountsCoordinator,
                     manualRefreshService: trayModel,
                     localAccountsMutationSyncService: trayModel,
-                    currentAccountSelectionSyncService: currentAccountSelectionSyncService,
-                    cloudSyncAvailabilityService: cloudSyncAvailabilityService,
+                    currentAccountSelectionSyncService: nil,
                     onLocalAccountsChanged: { accounts in
                         trayModel.acceptLocalAccountsSnapshot(accounts)
                     },
@@ -109,7 +97,7 @@ struct AppContainer {
                 proxyModel: ProxyPageModel(
                     coordinator: proxyCoordinator,
                     settingsCoordinator: settingsCoordinator,
-                    proxyControlCloudSyncService: proxyControlCloudSyncService,
+                    proxyControlCloudSyncService: nil,
                     localProxyCommandService: proxyControlBridge
                 ),
                 settingsModel: settingsModel,

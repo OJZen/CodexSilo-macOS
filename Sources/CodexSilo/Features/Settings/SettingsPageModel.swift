@@ -70,10 +70,6 @@ final class SettingsPageModel: ObservableObject {
         Task { await update(AppSettingsPatch(locale: value)) }
     }
 
-    func setSyncOpencodeOpenaiAuth(_ value: Bool) {
-        Task { await update(AppSettingsPatch(syncOpencodeOpenaiAuth: value)) }
-    }
-
     func setRestartEditorsOnSwitch(_ value: Bool) {
         if value && settings.restartEditorTargets.isEmpty, let first = installedEditorApps.first?.id {
             Task {

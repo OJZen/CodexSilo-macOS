@@ -7,7 +7,6 @@ struct FileSystemPaths {
     var codexConfigPath: URL
     var proxyDaemonDataDirectory: URL
     var proxyDaemonKeyPath: URL
-    var cloudflaredLogDirectory: URL
 
     static func live(fileManager: FileManager = .default) throws -> FileSystemPaths {
         let appSupportBase = try fileManager.url(
@@ -21,7 +20,6 @@ struct FileSystemPaths {
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         let codexDirectory = homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         let proxyDaemonDataDirectory = homeDirectory.appendingPathComponent(".codex-tools-proxyd", isDirectory: true)
-        let cloudflaredLogDirectory = appSupportDirectory.appendingPathComponent("cloudflared-logs", isDirectory: true)
 
         return FileSystemPaths(
             applicationSupportDirectory: appSupportDirectory,
@@ -29,8 +27,7 @@ struct FileSystemPaths {
             codexAuthPath: codexDirectory.appendingPathComponent("auth.json", isDirectory: false),
             codexConfigPath: codexDirectory.appendingPathComponent("config.toml", isDirectory: false),
             proxyDaemonDataDirectory: proxyDaemonDataDirectory,
-            proxyDaemonKeyPath: proxyDaemonDataDirectory.appendingPathComponent("api-proxy.key", isDirectory: false),
-            cloudflaredLogDirectory: cloudflaredLogDirectory
+            proxyDaemonKeyPath: proxyDaemonDataDirectory.appendingPathComponent("api-proxy.key", isDirectory: false)
         )
     }
 }

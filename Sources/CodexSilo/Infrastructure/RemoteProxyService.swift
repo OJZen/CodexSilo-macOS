@@ -378,7 +378,6 @@ final class RemoteProxyService: RemoteProxyServiceProtocol, @unchecked Sendable 
         [
             "launchAtStartup": settings.launchAtStartup,
             "launchCodexAfterSwitch": settings.launchCodexAfterSwitch,
-            "syncOpencodeOpenaiAuth": settings.syncOpencodeOpenaiAuth,
             "restartEditorsOnSwitch": settings.restartEditorsOnSwitch,
             "restartEditorTargets": settings.restartEditorTargets.map(\.rawValue),
             "autoStartApiProxy": settings.autoStartApiProxy,
@@ -389,7 +388,9 @@ final class RemoteProxyService: RemoteProxyServiceProtocol, @unchecked Sendable 
     }
 
     private func legacyLocaleIdentifier(for locale: String) -> String {
-        switch AppLocale.resolve(locale) {
+        switch AppLocale.effective(from: locale) {
+        case .automatic:
+            return legacyLocaleIdentifier(for: AppLocale.systemDefault.identifier)
         case .simplifiedChinese:
             return "zh-CN"
         case .traditionalChinese:

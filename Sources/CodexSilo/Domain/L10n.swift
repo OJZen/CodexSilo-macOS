@@ -14,7 +14,7 @@ enum L10n {
     }
 
     static func setLocale(identifier: String) {
-        let resolved = AppLocale.resolve(identifier).identifier
+        let resolved = AppLocale.effectiveIdentifier(for: identifier)
         lock.lock()
         defer { lock.unlock() }
         guard localeOverrideIdentifier != resolved else {

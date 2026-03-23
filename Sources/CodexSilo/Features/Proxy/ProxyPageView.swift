@@ -13,7 +13,6 @@ struct ProxyPageView: View {
                 }
 
                 ApiProxySectionView(model: model)
-                PublicAccessSection(model: model, onCopy: PlatformClipboard.copy)
             }
             .padding(.horizontal, LayoutRules.pagePadding)
             .padding(.top, LayoutRules.pageTopPadding)

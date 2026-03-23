@@ -39,8 +39,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 cloudReconciliationInterval: .seconds(3),
                 usageRefreshInterval: .seconds(30),
                 refreshUsageOnRecurringTick: true,
-                cloudSyncMode: .pushLocalAccounts,
-                applyRemoteSelectionSwitchEffects: true
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
             )
         }
     }
@@ -373,7 +373,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 throw error
             }
             #if DEBUG
-            // print("CloudKit background sync skipped:", error.localizedDescription)
+            // print("Background sync skipped:", error.localizedDescription)
             #endif
             return .noChange
         }
@@ -389,7 +389,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 throw error
             }
             #if DEBUG
-            // print("CloudKit background sync skipped:", error.localizedDescription)
+            // print("Background sync skipped:", error.localizedDescription)
             #endif
         }
     }
@@ -470,7 +470,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 try await cloudSyncService?.ensurePushSubscriptionIfNeeded()
             } catch {
                 #if DEBUG
-                // print("CloudKit accounts snapshot push subscription skipped:", error.localizedDescription)
+                // print("Accounts snapshot push subscription skipped:", error.localizedDescription)
                 #endif
             }
         }
@@ -494,7 +494,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 try await currentAccountSelectionSyncService?.ensurePushSubscriptionIfNeeded()
             } catch {
                 #if DEBUG
-                // print("CloudKit current selection push subscription skipped:", error.localizedDescription)
+                // print("Current selection push subscription skipped:", error.localizedDescription)
                 #endif
             }
         }
@@ -525,7 +525,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 throw error
             }
             #if DEBUG
-            // print("CloudKit current selection sync skipped:", error.localizedDescription)
+            // print("Current selection sync skipped:", error.localizedDescription)
             #endif
             return .noChange
         }

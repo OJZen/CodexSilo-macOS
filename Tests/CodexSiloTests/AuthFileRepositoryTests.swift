@@ -213,8 +213,7 @@ final class AuthFileRepositoryTests: XCTestCase {
             codexAuthPath: authPath,
             codexConfigPath: configPath,
             proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
-            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key", isDirectory: false),
-            cloudflaredLogDirectory: tempDir.appendingPathComponent("cloudflared-logs", isDirectory: true)
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key", isDirectory: false)
         )
 
         return RepositoryFixture(

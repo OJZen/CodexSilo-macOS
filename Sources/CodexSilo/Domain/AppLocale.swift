@@ -1,6 +1,7 @@
 import Foundation
 
 enum AppLocale: String, CaseIterable, Identifiable, Codable {
+    case automatic = "auto"
     case english = "en"
     case simplifiedChinese = "zh-Hans"
     case traditionalChinese = "zh-Hant"
@@ -18,6 +19,8 @@ enum AppLocale: String, CaseIterable, Identifiable, Codable {
 
     var displayNameKey: String {
         switch self {
+        case .automatic:
+            return "language.automatic"
         case .english:
             return "language.english"
         case .simplifiedChinese:
@@ -50,6 +53,9 @@ enum AppLocale: String, CaseIterable, Identifiable, Codable {
     static func preferred(from identifiers: [String]) -> AppLocale {
         for identifier in identifiers {
             let resolved = resolve(identifier)
+            if resolved == .automatic {
+                continue
+            }
             if resolved != .english || identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("en") {
                 return resolved
             }
@@ -57,11 +63,28 @@ enum AppLocale: String, CaseIterable, Identifiable, Codable {
         return .english
     }
 
+    static func effective(from value: String, preferredIdentifiers: [String] = Locale.preferredLanguages) -> AppLocale {
+        let resolved = resolve(value)
+        switch resolved {
+        case .automatic:
+            return preferred(from: preferredIdentifiers)
+        default:
+            return resolved
+        }
+    }
+
+    static func effectiveIdentifier(for value: String, preferredIdentifiers: [String] = Locale.preferredLanguages) -> String {
+        effective(from: value, preferredIdentifiers: preferredIdentifiers).identifier
+    }
+
     static func resolve(_ value: String) -> AppLocale {
         let normalized = value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
+        if normalized == automatic.rawValue || normalized == "system" {
+            return .automatic
+        }
         if normalized.hasPrefix("zh-hant") || normalized.hasPrefix("zh-tw") || normalized.hasPrefix("zh-hk") || normalized.hasPrefix("zh-mo") {
             return .traditionalChinese
         }

@@ -45,7 +45,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -96,7 +95,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -149,7 +147,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -181,7 +178,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -213,7 +209,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -262,7 +257,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -319,7 +313,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -372,7 +365,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -466,7 +458,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -512,9 +503,7 @@ final class AccountsCoordinatorTests: XCTestCase {
                 launchAtStartup: false,
                 launchCodexAfterSwitch: true,
                 autoRefreshAccounts: true,
-                autoSmartSwitch: false,
-                syncOpencodeOpenaiAuth: false,
-                restartEditorsOnSwitch: true,
+                autoSmartSwitch: false,                restartEditorsOnSwitch: true,
                 restartEditorTargets: [.cursor],
                 autoStartApiProxy: false,
                 remoteServers: [],
@@ -540,7 +529,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: codexService,
             editorAppService: editorService,
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now),
             runtimePlatform: .macOS
         )
@@ -584,7 +572,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -593,7 +580,7 @@ final class AccountsCoordinatorTests: XCTestCase {
         )
 
         XCTAssertTrue(model.hasResolvedInitialState)
-        XCTAssertEqual(model.state, AccountsPageModel.makeViewState(accounts: [account], cloudSyncAvailable: true))
+        XCTAssertEqual(model.state, AccountsPageModel.makeViewState(accounts: [account]))
     }
 
     @MainActor
@@ -627,7 +614,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -657,7 +643,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
 
         let initialOverviewCollapsed = try await coordinator.accountsOverviewCollapsed()
@@ -687,7 +672,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -723,7 +707,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
 
         let started = expectation(description: "manual refresh started")
@@ -795,7 +778,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
         let syncSpy = SpyAccountsLocalMutationSyncService()
         let model = AccountsPageModel(
@@ -869,7 +851,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -927,7 +908,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1004,7 +984,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1074,7 +1053,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1110,7 +1088,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService()
         )
 
         do {
@@ -1163,7 +1140,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1223,7 +1199,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1282,7 +1257,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1340,7 +1314,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
             codexCLIService: StubCodexCLIService(),
             editorAppService: StubEditorAppService(),
-            opencodeAuthSyncService: StubOpencodeAuthSyncService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1814,8 +1787,3 @@ private final class RecordingEditorAppService: EditorAppServiceProtocol, @unchec
     }
 }
 
-private final class StubOpencodeAuthSyncService: OpencodeAuthSyncServiceProtocol, @unchecked Sendable {
-    func syncFromCodexAuth(_ authJSON: JSONValue) throws {
-        _ = authJSON
-    }
-}

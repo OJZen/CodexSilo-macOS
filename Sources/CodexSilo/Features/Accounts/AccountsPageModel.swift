@@ -11,12 +11,10 @@ final class AccountsPageModel: ObservableObject {
     private let manualRefreshService: AccountsManualRefreshServiceProtocol?
     private let localAccountsMutationSyncService: AccountsLocalMutationSyncServiceProtocol?
     private let currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol?
-    private let cloudSyncAvailabilityService: CloudSyncAvailabilityServiceProtocol?
     private let onLocalAccountsChanged: (([AccountSummary]) -> Void)?
     private let noticeScheduler = NoticeAutoDismissScheduler()
     private var prefersCollapsedOverview = false
     private var hasLoaded = false
-    private var isCloudSyncAvailable = true
     private var addAccountTask: Task<Void, Never>?
     private var lastWindowPresentationRefreshAt: Date?
 
@@ -42,7 +40,6 @@ final class AccountsPageModel: ObservableObject {
         manualRefreshService: AccountsManualRefreshServiceProtocol? = nil,
         localAccountsMutationSyncService: AccountsLocalMutationSyncServiceProtocol? = nil,
         currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol? = nil,
-        cloudSyncAvailabilityService: CloudSyncAvailabilityServiceProtocol? = nil,
         onLocalAccountsChanged: (([AccountSummary]) -> Void)? = nil,
         initialAccounts: [AccountSummary]? = nil,
         initialOverviewCollapsed: Bool = false
@@ -51,15 +48,10 @@ final class AccountsPageModel: ObservableObject {
         self.manualRefreshService = manualRefreshService
         self.localAccountsMutationSyncService = localAccountsMutationSyncService
         self.currentAccountSelectionSyncService = currentAccountSelectionSyncService
-        self.cloudSyncAvailabilityService = cloudSyncAvailabilityService
         self.onLocalAccountsChanged = onLocalAccountsChanged
         self.prefersCollapsedOverview = initialOverviewCollapsed
         self.state = initialAccounts.map { initialAccounts in
-            Self.makeViewState(
-                accounts: initialAccounts,
-                cloudSyncAvailable: true,
-                sortMode: .remainingUsage
-            )
+            Self.makeViewState(accounts: initialAccounts, sortMode: .remainingUsage)
         } ?? .loading
         if initialOverviewCollapsed, let initialAccounts {
             self.collapsedAccountIDs = Set(initialAccounts.map(\.id))
@@ -73,12 +65,9 @@ final class AccountsPageModel: ObservableObject {
     }
 
     func load() async {
-        async let cloudSyncAvailableTask = cloudSyncAvailabilityService?.isICloudAvailable() ?? true
         do {
             let accounts = try await coordinator.listAccounts()
             prefersCollapsedOverview = try await coordinator.accountsOverviewCollapsed()
-            applyAccounts(accounts)
-            isCloudSyncAvailable = await cloudSyncAvailableTask
             applyAccounts(accounts)
             hasLoaded = true
         } catch {
@@ -401,11 +390,7 @@ final class AccountsPageModel: ObservableObject {
         sortMode = value
 
         guard case .content(let accounts) = state else { return }
-        state = Self.makeViewState(
-            accounts: accounts,
-            cloudSyncAvailable: isCloudSyncAvailable,
-            sortMode: sortMode
-        )
+        state = Self.makeViewState(accounts: accounts, sortMode: sortMode)
     }
 
     var hasResolvedInitialState: Bool {
@@ -428,15 +413,11 @@ final class AccountsPageModel: ObservableObject {
 
     static func makeViewState(
         accounts: [AccountSummary],
-        cloudSyncAvailable: Bool,
         sortMode: AccountsSortMode = .remainingUsage
     ) -> ViewState<[AccountSummary]> {
         let sorted = AccountRanking.sortForDisplay(accounts, mode: sortMode)
         if sorted.isEmpty {
-            let messageKey = cloudSyncAvailable
-                ? "accounts.empty.message.no_accounts"
-                : "accounts.empty.message.enable_icloud"
-            return .empty(message: L10n.tr(messageKey))
+            return .empty(message: L10n.tr("accounts.empty.message.no_accounts"))
         }
         return .content(sorted)
     }
@@ -450,13 +431,6 @@ final class AccountsPageModel: ObservableObject {
             segments.append(L10n.tr("accounts.notice.switch_done_fallback"))
         } else {
             segments.append(L10n.tr("accounts.notice.switch_done"))
-        }
-
-        if let syncError = execution.opencodeSyncError, !syncError.isEmpty {
-            style = .error
-            segments.append(L10n.tr("accounts.notice.sync_failed_format", syncError))
-        } else if execution.opencodeSynced {
-            segments.append(L10n.tr("accounts.notice.sync_done"))
         }
 
         if let restartError = execution.editorRestartError, !restartError.isEmpty {
@@ -480,7 +454,6 @@ final class AccountsPageModel: ObservableObject {
 
         let nextState = AccountsPageModel.makeViewState(
             accounts: sorted,
-            cloudSyncAvailable: isCloudSyncAvailable,
             sortMode: sortMode
         )
         if state != nextState {

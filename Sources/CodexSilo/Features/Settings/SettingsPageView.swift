@@ -90,14 +90,6 @@ struct SettingsPageView: View {
             .toggleStyle(.switch)
 
             Toggle(isOn: Binding(
-                get: { model.settings.syncOpencodeOpenaiAuth },
-                set: { model.setSyncOpencodeOpenaiAuth($0) }
-            )) {
-                Label("settings.sync_opencode_openai_auth", systemImage: "person.text.rectangle")
-            }
-            .toggleStyle(.switch)
-
-            Toggle(isOn: Binding(
                 get: { model.settings.restartEditorsOnSwitch },
                 set: { model.setRestartEditorsOnSwitch($0) }
             )) {

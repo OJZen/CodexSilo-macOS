@@ -537,15 +537,11 @@ struct InstalledEditorApp: Equatable, Identifiable {
 
 struct SwitchAccountExecutionResult: Equatable {
     var usedFallbackCLI: Bool
-    var opencodeSynced: Bool
-    var opencodeSyncError: String?
     var restartedEditorApps: [EditorAppID]
     var editorRestartError: String?
 
     static let idle = SwitchAccountExecutionResult(
         usedFallbackCLI: false,
-        opencodeSynced: false,
-        opencodeSyncError: nil,
         restartedEditorApps: [],
         editorRestartError: nil
     )
@@ -570,7 +566,6 @@ struct AppSettings: Codable, Equatable {
     var launchCodexAfterSwitch: Bool
     var autoRefreshAccounts: Bool
     var autoSmartSwitch: Bool
-    var syncOpencodeOpenaiAuth: Bool
     var restartEditorsOnSwitch: Bool
     var restartEditorTargets: [EditorAppID]
     var autoStartApiProxy: Bool
@@ -582,7 +577,6 @@ struct AppSettings: Codable, Equatable {
         case launchCodexAfterSwitch
         case autoRefreshAccounts
         case autoSmartSwitch
-        case syncOpencodeOpenaiAuth
         case restartEditorsOnSwitch
         case restartEditorTargets
         case autoStartApiProxy
@@ -595,7 +589,6 @@ struct AppSettings: Codable, Equatable {
         launchCodexAfterSwitch: Bool,
         autoRefreshAccounts: Bool,
         autoSmartSwitch: Bool,
-        syncOpencodeOpenaiAuth: Bool,
         restartEditorsOnSwitch: Bool,
         restartEditorTargets: [EditorAppID],
         autoStartApiProxy: Bool,
@@ -606,7 +599,6 @@ struct AppSettings: Codable, Equatable {
         self.launchCodexAfterSwitch = launchCodexAfterSwitch
         self.autoRefreshAccounts = autoRefreshAccounts
         self.autoSmartSwitch = autoSmartSwitch
-        self.syncOpencodeOpenaiAuth = syncOpencodeOpenaiAuth
         self.restartEditorsOnSwitch = restartEditorsOnSwitch
         self.restartEditorTargets = restartEditorTargets
         self.autoStartApiProxy = autoStartApiProxy
@@ -622,7 +614,6 @@ struct AppSettings: Codable, Equatable {
         launchCodexAfterSwitch = try container.decodeIfPresent(Bool.self, forKey: .launchCodexAfterSwitch) ?? fallback.launchCodexAfterSwitch
         autoRefreshAccounts = try container.decodeIfPresent(Bool.self, forKey: .autoRefreshAccounts) ?? fallback.autoRefreshAccounts
         autoSmartSwitch = try container.decodeIfPresent(Bool.self, forKey: .autoSmartSwitch) ?? fallback.autoSmartSwitch
-        syncOpencodeOpenaiAuth = try container.decodeIfPresent(Bool.self, forKey: .syncOpencodeOpenaiAuth) ?? fallback.syncOpencodeOpenaiAuth
         restartEditorsOnSwitch = try container.decodeIfPresent(Bool.self, forKey: .restartEditorsOnSwitch) ?? fallback.restartEditorsOnSwitch
         restartEditorTargets = try container.decodeIfPresent([EditorAppID].self, forKey: .restartEditorTargets) ?? fallback.restartEditorTargets
         autoStartApiProxy = try container.decodeIfPresent(Bool.self, forKey: .autoStartApiProxy) ?? fallback.autoStartApiProxy
@@ -638,7 +629,6 @@ struct AppSettings: Codable, Equatable {
         try container.encode(launchCodexAfterSwitch, forKey: .launchCodexAfterSwitch)
         try container.encode(autoRefreshAccounts, forKey: .autoRefreshAccounts)
         try container.encode(autoSmartSwitch, forKey: .autoSmartSwitch)
-        try container.encode(syncOpencodeOpenaiAuth, forKey: .syncOpencodeOpenaiAuth)
         try container.encode(restartEditorsOnSwitch, forKey: .restartEditorsOnSwitch)
         try container.encode(restartEditorTargets, forKey: .restartEditorTargets)
         try container.encode(autoStartApiProxy, forKey: .autoStartApiProxy)
@@ -652,12 +642,11 @@ struct AppSettings: Codable, Equatable {
             launchCodexAfterSwitch: true,
             autoRefreshAccounts: true,
             autoSmartSwitch: false,
-            syncOpencodeOpenaiAuth: false,
             restartEditorsOnSwitch: false,
             restartEditorTargets: [],
             autoStartApiProxy: false,
             remoteServers: [],
-            locale: AppLocale.systemDefault.identifier
+            locale: AppLocale.automatic.identifier
         )
     }
 }
@@ -667,7 +656,6 @@ struct AppSettingsPatch {
     var launchCodexAfterSwitch: Bool? = nil
     var autoRefreshAccounts: Bool? = nil
     var autoSmartSwitch: Bool? = nil
-    var syncOpencodeOpenaiAuth: Bool? = nil
     var restartEditorsOnSwitch: Bool? = nil
     var restartEditorTargets: [EditorAppID]? = nil
     var autoStartApiProxy: Bool? = nil
@@ -697,47 +685,6 @@ struct ApiProxyStatus: Codable, Equatable {
     )
 }
 
-enum CloudflaredTunnelMode: String, Codable, CaseIterable {
-    case quick
-    case named
-}
-
-struct StartCloudflaredTunnelInput: Codable, Equatable {
-    var apiProxyPort: Int
-    var useHTTP2: Bool
-    var mode: CloudflaredTunnelMode
-    var named: NamedCloudflaredTunnelInput?
-}
-
-struct NamedCloudflaredTunnelInput: Codable, Equatable {
-    var apiToken: String
-    var accountID: String
-    var zoneID: String
-    var hostname: String
-}
-
-struct CloudflaredStatus: Codable, Equatable {
-    var installed: Bool
-    var binaryPath: String?
-    var running: Bool
-    var tunnelMode: CloudflaredTunnelMode?
-    var publicURL: String?
-    var customHostname: String?
-    var useHTTP2: Bool
-    var lastError: String?
-
-    static let idle = CloudflaredStatus(
-        installed: false,
-        binaryPath: nil,
-        running: false,
-        tunnelMode: nil,
-        publicURL: nil,
-        customHostname: nil,
-        useHTTP2: false,
-        lastError: nil
-    )
-}
-
 struct RemoteProxyStatus: Codable, Equatable, Sendable {
     var installed: Bool
     var serviceInstalled: Bool
@@ -756,11 +703,6 @@ struct ProxyControlSnapshot: Codable, Equatable {
     var proxyStatus: ApiProxyStatus
     var preferredProxyPort: Int?
     var autoStartProxy: Bool
-    var cloudflaredStatus: CloudflaredStatus
-    var cloudflaredTunnelMode: CloudflaredTunnelMode
-    var cloudflaredNamedInput: NamedCloudflaredTunnelInput
-    var cloudflaredUseHTTP2: Bool
-    var publicAccessEnabled: Bool
     var remoteServers: [RemoteServerConfig]
     var remoteStatusesSyncedAt: Int64?
     var remoteStatuses: [String: RemoteProxyStatus]
@@ -775,10 +717,6 @@ enum ProxyControlCommandKind: String, Codable {
     case stopProxy
     case refreshAPIKey
     case setAutoStartProxy
-    case installCloudflared
-    case startCloudflared
-    case stopCloudflared
-    case refreshCloudflared
     case addRemoteServer
     case saveRemoteServer
     case removeRemoteServer
@@ -796,7 +734,6 @@ struct ProxyControlCommand: Codable, Equatable, Identifiable {
     var kind: ProxyControlCommandKind
     var preferredProxyPort: Int?
     var autoStartProxy: Bool?
-    var cloudflaredInput: StartCloudflaredTunnelInput?
     var remoteServer: RemoteServerConfig?
     var remoteServerID: String?
     var logLines: Int?

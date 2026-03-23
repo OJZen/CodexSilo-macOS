@@ -1,25 +1,19 @@
 import Foundation
-import Combine
 
 final class ProxyCoordinator: @unchecked Sendable {
     private let proxyService: ProxyRuntimeService
-    private let cloudflaredService: CloudflaredServiceProtocol
     private let remoteService: RemoteProxyServiceProtocol
 
     init(
         proxyService: ProxyRuntimeService,
-        cloudflaredService: CloudflaredServiceProtocol,
         remoteService: RemoteProxyServiceProtocol
     ) {
         self.proxyService = proxyService
-        self.cloudflaredService = cloudflaredService
         self.remoteService = remoteService
     }
 
-    func loadStatus() async -> (ApiProxyStatus, CloudflaredStatus) {
-        async let proxy = proxyService.status()
-        async let cloudflared = cloudflaredService.status()
-        return await (proxy, cloudflared)
+    func loadStatus() async -> ApiProxyStatus {
+        await proxyService.status()
     }
 
     func startProxy(preferredPort: Int?) async throws -> ApiProxyStatus {
@@ -33,22 +27,6 @@ final class ProxyCoordinator: @unchecked Sendable {
 
     func refreshAPIKey() async throws -> ApiProxyStatus {
         try await proxyService.refreshAPIKey()
-    }
-
-    func installCloudflared() async throws -> CloudflaredStatus {
-        try await cloudflaredService.install()
-    }
-
-    func startCloudflared(input: StartCloudflaredTunnelInput) async throws -> CloudflaredStatus {
-        try await cloudflaredService.start(input)
-    }
-
-    func stopCloudflared() async -> CloudflaredStatus {
-        await cloudflaredService.stop()
-    }
-
-    func refreshCloudflared() async -> CloudflaredStatus {
-        await cloudflaredService.status()
     }
 
     func remoteStatus(server: RemoteServerConfig) async -> RemoteProxyStatus {

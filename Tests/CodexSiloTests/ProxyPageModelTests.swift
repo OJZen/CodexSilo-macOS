@@ -110,7 +110,6 @@ final class ProxyPageModelTests: XCTestCase {
     ) -> ProxyPageModel {
         let proxyCoordinator = ProxyCoordinator(
             proxyService: StubProxyRuntimeService(),
-            cloudflaredService: StubCloudflaredService(),
             remoteService: StubRemoteProxyService()
         )
         let settingsCoordinator = SettingsCoordinator(
@@ -151,16 +150,6 @@ final class ProxyPageModelTests: XCTestCase {
             activeAccountLabel: "Primary",
             lastError: nil
         )
-        let cloudflaredStatus = CloudflaredStatus(
-            installed: true,
-            binaryPath: "/usr/local/bin/cloudflared",
-            running: true,
-            tunnelMode: .quick,
-            publicURL: "https://example.trycloudflare.com",
-            customHostname: nil,
-            useHTTP2: true,
-            lastError: nil
-        )
         let remoteStatus = RemoteProxyStatus(
             installed: true,
             serviceInstalled: true,
@@ -179,16 +168,6 @@ final class ProxyPageModelTests: XCTestCase {
             proxyStatus: proxyStatus,
             preferredProxyPort: 8787,
             autoStartProxy: true,
-            cloudflaredStatus: cloudflaredStatus,
-            cloudflaredTunnelMode: .quick,
-            cloudflaredNamedInput: NamedCloudflaredTunnelInput(
-                apiToken: "",
-                accountID: "",
-                zoneID: "",
-                hostname: ""
-            ),
-            cloudflaredUseHTTP2: true,
-            publicAccessEnabled: true,
             remoteServers: [server],
             remoteStatusesSyncedAt: 1_763_216_000_000,
             remoteStatuses: [server.id: remoteStatus],
@@ -310,16 +289,6 @@ private struct StubProxyRuntimeService: ProxyRuntimeService {
     func stop() async -> ApiProxyStatus { .idle }
     func refreshAPIKey() async throws -> ApiProxyStatus { .idle }
     func syncAccountsStore() async throws {}
-}
-
-private struct StubCloudflaredService: CloudflaredServiceProtocol {
-    func status() async -> CloudflaredStatus { .idle }
-    func install() async throws -> CloudflaredStatus { .idle }
-    func start(_ input: StartCloudflaredTunnelInput) async throws -> CloudflaredStatus {
-        _ = input
-        return .idle
-    }
-    func stop() async -> CloudflaredStatus { .idle }
 }
 
 private struct StubRemoteProxyService: RemoteProxyServiceProtocol {

@@ -1,5 +1,4 @@
 import SwiftUI
-import CloudKit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -100,22 +99,11 @@ private final class CodexSiloAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.registerForRemoteNotifications()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         _ = sender
         return false
-    }
-
-    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        _ = application
-        _ = deviceToken
-    }
-
-    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String : Any]) {
-        _ = application
-        handleRemoteNotification(userInfo)
     }
 }
 
@@ -185,34 +173,4 @@ private final class MainWindowController: NSObject, NSWindowDelegate {
         self.window = window
         return window
     }
-}
-
-@discardableResult
-private func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
-    let payload = userInfo.reduce(into: [String: Any]()) { partialResult, entry in
-        if let key = entry.key as? String {
-            partialResult[key] = entry.value
-        }
-    }
-
-    guard let notification = CKNotification(fromRemoteNotificationDictionary: payload) else {
-        return false
-    }
-
-    if notification.subscriptionID == CloudKitCurrentAccountSelectionSyncService.pushSubscriptionID {
-        NotificationCenter.default.post(name: .codexsiloCurrentAccountSelectionPushDidArrive, object: nil)
-        return true
-    }
-
-    if notification.subscriptionID == CloudKitAccountsSyncService.pushSubscriptionID {
-        NotificationCenter.default.post(name: .codexsiloAccountsSnapshotPushDidArrive, object: nil)
-        return true
-    }
-
-    if notification.subscriptionID == CloudKitProxyControlSyncService.pushSubscriptionID {
-        NotificationCenter.default.post(name: .codexsiloProxyControlPushDidArrive, object: nil)
-        return true
-    }
-
-    return false
 }

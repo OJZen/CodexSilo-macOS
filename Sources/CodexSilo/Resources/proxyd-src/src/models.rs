@@ -88,8 +88,6 @@ pub(crate) struct SwitchAccountResult {
     pub(crate) account_id: String,
     pub(crate) launched_app_path: Option<String>,
     pub(crate) used_fallback_cli: bool,
-    pub(crate) opencode_synced: bool,
-    pub(crate) opencode_sync_error: Option<String>,
     pub(crate) restarted_editor_apps: Vec<EditorAppId>,
     pub(crate) editor_restart_error: Option<String>,
 }
@@ -206,44 +204,6 @@ pub(crate) struct DeployRemoteProxyInput {
     pub(crate) server: RemoteServerConfig,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum CloudflaredTunnelMode {
-    Quick,
-    Named,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CloudflaredStatus {
-    pub(crate) installed: bool,
-    pub(crate) binary_path: Option<String>,
-    pub(crate) running: bool,
-    pub(crate) tunnel_mode: Option<CloudflaredTunnelMode>,
-    pub(crate) public_url: Option<String>,
-    pub(crate) custom_hostname: Option<String>,
-    pub(crate) use_http2: bool,
-    pub(crate) last_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct NamedCloudflaredTunnelInput {
-    pub(crate) api_token: String,
-    pub(crate) account_id: String,
-    pub(crate) zone_id: String,
-    pub(crate) hostname: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StartCloudflaredTunnelInput {
-    pub(crate) api_proxy_port: u16,
-    pub(crate) use_http2: bool,
-    pub(crate) mode: CloudflaredTunnelMode,
-    pub(crate) named: Option<NamedCloudflaredTunnelInput>,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum TrayUsageDisplayMode {
@@ -293,7 +253,6 @@ pub(crate) struct AppSettings {
     pub(crate) launch_at_startup: bool,
     pub(crate) tray_usage_display_mode: TrayUsageDisplayMode,
     pub(crate) launch_codex_after_switch: bool,
-    pub(crate) sync_opencode_openai_auth: bool,
     pub(crate) restart_editors_on_switch: bool,
     pub(crate) restart_editor_targets: Vec<EditorAppId>,
     pub(crate) auto_start_api_proxy: bool,
@@ -308,7 +267,6 @@ impl Default for AppSettings {
             launch_at_startup: false,
             tray_usage_display_mode: TrayUsageDisplayMode::Remaining,
             launch_codex_after_switch: true,
-            sync_opencode_openai_auth: false,
             restart_editors_on_switch: false,
             restart_editor_targets: Vec::new(),
             auto_start_api_proxy: false,
@@ -325,7 +283,6 @@ pub(crate) struct AppSettingsPatch {
     pub(crate) launch_at_startup: Option<bool>,
     pub(crate) tray_usage_display_mode: Option<TrayUsageDisplayMode>,
     pub(crate) launch_codex_after_switch: Option<bool>,
-    pub(crate) sync_opencode_openai_auth: Option<bool>,
     pub(crate) restart_editors_on_switch: Option<bool>,
     pub(crate) restart_editor_targets: Option<Vec<EditorAppId>>,
     pub(crate) auto_start_api_proxy: Option<bool>,

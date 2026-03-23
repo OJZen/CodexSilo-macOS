@@ -19,7 +19,7 @@ struct RootScene: View {
     }
 
     private var runtimeLocale: Locale {
-        Locale(identifier: AppLocale.resolve(settingsModel.settings.locale).identifier)
+        Locale(identifier: AppLocale.effectiveIdentifier(for: settingsModel.settings.locale))
     }
 
     private var currentTab: AppTab {

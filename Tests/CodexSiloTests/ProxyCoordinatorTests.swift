@@ -7,7 +7,6 @@ final class ProxyCoordinatorTests: XCTestCase {
         let remoteService = TrackingRemoteProxyService(tracker: tracker)
         let coordinator = ProxyCoordinator(
             proxyService: ProxyCoordinatorStubProxyRuntimeService(),
-            cloudflaredService: ProxyCoordinatorStubCloudflaredService(),
             remoteService: remoteService
         )
 
@@ -111,14 +110,4 @@ private struct ProxyCoordinatorStubProxyRuntimeService: ProxyRuntimeService {
     func stop() async -> ApiProxyStatus { .idle }
     func refreshAPIKey() async throws -> ApiProxyStatus { .idle }
     func syncAccountsStore() async throws {}
-}
-
-private struct ProxyCoordinatorStubCloudflaredService: CloudflaredServiceProtocol {
-    func status() async -> CloudflaredStatus { .idle }
-    func install() async throws -> CloudflaredStatus { .idle }
-    func start(_ input: StartCloudflaredTunnelInput) async throws -> CloudflaredStatus {
-        _ = input
-        return .idle
-    }
-    func stop() async -> CloudflaredStatus { .idle }
 }

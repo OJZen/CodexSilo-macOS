@@ -49,7 +49,6 @@ final class ProxyControlBridgeTests: XCTestCase {
                     launchCodexAfterSwitch: true,
                     autoRefreshAccounts: true,
                     autoSmartSwitch: false,
-                    syncOpencodeOpenaiAuth: false,
                     restartEditorsOnSwitch: false,
                     restartEditorTargets: [],
                     autoStartApiProxy: false,
@@ -81,7 +80,6 @@ final class ProxyControlBridgeTests: XCTestCase {
                     launchCodexAfterSwitch: true,
                     autoRefreshAccounts: true,
                     autoSmartSwitch: false,
-                    syncOpencodeOpenaiAuth: false,
                     restartEditorsOnSwitch: false,
                     restartEditorTargets: [],
                     autoStartApiProxy: false,
@@ -119,7 +117,6 @@ final class ProxyControlBridgeTests: XCTestCase {
             kind: .refreshStatus,
             preferredProxyPort: nil,
             autoStartProxy: nil,
-            cloudflaredInput: nil,
             remoteServer: nil,
             remoteServerID: nil,
             logLines: nil
@@ -139,7 +136,6 @@ final class ProxyControlBridgeTests: XCTestCase {
     ) -> ProxyControlBridge {
         let proxyCoordinator = ProxyCoordinator(
             proxyService: StubProxyRuntimeService(),
-            cloudflaredService: StubCloudflaredService(),
             remoteService: remoteService
         )
         let settingsCoordinator = SettingsCoordinator(
@@ -259,19 +255,6 @@ private struct StubProxyRuntimeService: ProxyRuntimeService {
     func refreshAPIKey() async throws -> ApiProxyStatus { .idle }
 
     func syncAccountsStore() async throws {}
-}
-
-private struct StubCloudflaredService: CloudflaredServiceProtocol {
-    func status() async -> CloudflaredStatus { .idle }
-
-    func install() async throws -> CloudflaredStatus { .idle }
-
-    func start(_ input: StartCloudflaredTunnelInput) async throws -> CloudflaredStatus {
-        _ = input
-        return .idle
-    }
-
-    func stop() async -> CloudflaredStatus { .idle }
 }
 
 private struct StubRemoteProxyService: RemoteProxyServiceProtocol {

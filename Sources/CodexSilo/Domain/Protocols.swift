@@ -45,13 +45,6 @@ protocol ProxyRuntimeService: Sendable {
     func syncAccountsStore() async throws
 }
 
-protocol CloudflaredServiceProtocol: Sendable {
-    func status() async -> CloudflaredStatus
-    func install() async throws -> CloudflaredStatus
-    func start(_ input: StartCloudflaredTunnelInput) async throws -> CloudflaredStatus
-    func stop() async -> CloudflaredStatus
-}
-
 protocol RemoteProxyServiceProtocol: Sendable {
     func status(server: RemoteServerConfig) async -> RemoteProxyStatus
     func deploy(server: RemoteServerConfig) async throws -> RemoteProxyStatus
@@ -75,10 +68,6 @@ protocol ChatGPTOAuthLoginServiceProtocol: Sendable {
 protocol EditorAppServiceProtocol: Sendable {
     func listInstalledApps() -> [InstalledEditorApp]
     func restartSelectedApps(_ targets: [EditorAppID]) -> (restarted: [EditorAppID], error: String?)
-}
-
-protocol OpencodeAuthSyncServiceProtocol: Sendable {
-    func syncFromCodexAuth(_ authJSON: JSONValue) throws
 }
 
 protocol LaunchAtStartupServiceProtocol: Sendable {

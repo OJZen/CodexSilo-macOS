@@ -22,7 +22,6 @@ actor AccountsCoordinator {
     private let chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol
     private let codexCLIService: CodexCLIServiceProtocol
     private let editorAppService: EditorAppServiceProtocol
-    private let opencodeAuthSyncService: OpencodeAuthSyncServiceProtocol
     private let dateProvider: DateProviding
     private let runtimePlatform: RuntimePlatform
 
@@ -34,7 +33,6 @@ actor AccountsCoordinator {
         chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
         codexCLIService: CodexCLIServiceProtocol,
         editorAppService: EditorAppServiceProtocol,
-        opencodeAuthSyncService: OpencodeAuthSyncServiceProtocol,
         dateProvider: DateProviding = SystemDateProvider(),
         runtimePlatform: RuntimePlatform = PlatformCapabilities.currentPlatform
     ) {
@@ -45,7 +43,6 @@ actor AccountsCoordinator {
         self.chatGPTOAuthLoginService = chatGPTOAuthLoginService
         self.codexCLIService = codexCLIService
         self.editorAppService = editorAppService
-        self.opencodeAuthSyncService = opencodeAuthSyncService
         self.dateProvider = dateProvider
         self.runtimePlatform = runtimePlatform
     }
@@ -754,15 +751,6 @@ actor AccountsCoordinator {
         workspacePath: String?
     ) throws -> SwitchAccountExecutionResult {
         var result = SwitchAccountExecutionResult.idle
-
-        if settings.syncOpencodeOpenaiAuth {
-            do {
-                try opencodeAuthSyncService.syncFromCodexAuth(account.authJSON)
-                result.opencodeSynced = true
-            } catch {
-                result.opencodeSyncError = error.localizedDescription
-            }
-        }
 
         if settings.restartEditorsOnSwitch {
             let restart = editorAppService.restartSelectedApps(settings.restartEditorTargets)

@@ -190,8 +190,7 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             codexAuthPath: tempDir.appendingPathComponent("auth.json"),
             codexConfigPath: tempDir.appendingPathComponent("config.toml"),
             proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
-            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key"),
-            cloudflaredLogDirectory: tempDir.appendingPathComponent("cloudflared-logs", isDirectory: true)
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
         )
 
         let storeRepo = MockStoreRepository()
@@ -251,8 +250,7 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             codexAuthPath: tempDir.appendingPathComponent("auth.json"),
             codexConfigPath: tempDir.appendingPathComponent("config.toml"),
             proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
-            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key"),
-            cloudflaredLogDirectory: tempDir.appendingPathComponent("cloudflared-logs", isDirectory: true)
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
         )
 
         try FileManager.default.createDirectory(
@@ -288,8 +286,7 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             codexAuthPath: tempDir.appendingPathComponent("auth.json"),
             codexConfigPath: tempDir.appendingPathComponent("config.toml"),
             proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
-            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key"),
-            cloudflaredLogDirectory: tempDir.appendingPathComponent("cloudflared-logs", isDirectory: true)
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
         )
 
         let runtime = SwiftNativeProxyRuntimeService(
