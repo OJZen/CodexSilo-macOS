@@ -8,71 +8,31 @@ struct ApiProxySectionView: View {
 
     var body: some View {
         SectionCard(title: L10n.tr("proxy.section.api_proxy")) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: LayoutRules.proxyDetailCardSpacing) {
                 proxyHeroContent
                 proxyDetailGroup
             }
         }
     }
 
-    private var proxySummary: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                model.proxyStatus.running ? L10n.tr("proxy.status.running") : L10n.tr("proxy.status.stopped"),
-                systemImage: model.proxyStatus.running ? "checkmark.circle.fill" : "pause.circle.fill"
-            )
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(model.proxyStatus.running ? Color.green : Color.secondary)
-
-            Text(L10n.tr("proxy.port_line_format", model.proxyStatus.port.map(String.init) ?? "--"))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text(L10n.tr("proxy.available_accounts_format", String(model.proxyStatus.availableAccounts)))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var proxyHeroContent: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                proxySummary
+        proxyPanel {
+            VStack(alignment: .leading, spacing: LayoutRules.proxySectionSpacing) {
+                proxyMetricStrip
                 Divider()
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.tr("proxy.port_line_format", "").trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    TextField("8787", text: $model.preferredPortText)
-                        .frostedRoundedInput()
-                        .frame(width: LayoutRules.proxyHeroPortFieldWidth)
-                }
-
-                HStack(spacing: 10) {
-                    Button("proxy.action.refresh_status") {
-                        Task { await model.refreshStatus() }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: LayoutRules.proxySectionSpacing) {
+                        preferredPortEditor
+                        Spacer(minLength: 0)
+                        actionBar
                     }
-                    .liquidGlassActionButtonStyle()
-                    .disabled(model.loading)
 
-                    if model.proxyStatus.running {
-                        Button("proxy.action.stop_api_proxy", role: .destructive) {
-                            Task { await model.stopProxy() }
-                        }
-                        .liquidGlassActionButtonStyle(prominent: true, tint: .red)
-                        .disabled(model.loading)
-                    } else {
-                        Button("proxy.action.start_api_proxy") {
-                            Task { await model.startProxy() }
-                        }
-                        .liquidGlassActionButtonStyle(prominent: true)
-                        .disabled(model.loading)
+                    VStack(alignment: .leading, spacing: 12) {
+                        preferredPortEditor
+                        actionBar
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Toggle(isOn: Binding(
                     get: { model.autoStartProxy },
@@ -90,7 +50,7 @@ struct ApiProxySectionView: View {
     }
 
     private var proxyDetailGroup: some View {
-        GroupBox {
+        proxyPanel {
             VStack(alignment: .leading, spacing: 12) {
                 ProxyValueRow(
                     title: L10n.tr("proxy.detail.base_url"),
@@ -131,6 +91,94 @@ struct ApiProxySectionView: View {
                 )
             }
         }
+    }
+
+    private var proxyMetricStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: LayoutRules.proxyMetricChipSpacing) {
+                statusChip
+                metricChip(text: L10n.tr("proxy.port_line_format", model.proxyStatus.port.map(String.init) ?? "--"))
+                metricChip(text: L10n.tr("proxy.available_accounts_format", String(model.proxyStatus.availableAccounts)))
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: LayoutRules.proxyMetricChipSpacing) {
+                statusChip
+                metricChip(text: L10n.tr("proxy.port_line_format", model.proxyStatus.port.map(String.init) ?? "--"))
+                metricChip(text: L10n.tr("proxy.available_accounts_format", String(model.proxyStatus.availableAccounts)))
+            }
+        }
+    }
+
+    private var statusChip: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(model.proxyStatus.running ? Color.green : Color.secondary)
+                .frame(width: 8, height: 8)
+
+            Text(model.proxyStatus.running ? L10n.tr("proxy.status.running") : L10n.tr("proxy.status.stopped"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, LayoutRules.proxyMetricChipHorizontalPadding)
+        .padding(.vertical, LayoutRules.proxyMetricChipVerticalPadding)
+        .frostedRoundedSurface(cornerRadius: 999, tint: model.proxyStatus.running ? .green : nil)
+    }
+
+    private func metricChip(text: String) -> some View {
+        Text(text)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, LayoutRules.proxyMetricChipHorizontalPadding)
+            .padding(.vertical, LayoutRules.proxyMetricChipVerticalPadding)
+            .frostedRoundedSurface(cornerRadius: 999)
+    }
+
+    private var preferredPortEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.tr("proxy.port_line_format", "").trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            TextField("8787", text: $model.preferredPortText)
+                .frostedRoundedInput()
+                .frame(width: LayoutRules.proxyHeroPortFieldWidth)
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Button("proxy.action.refresh_status") {
+                Task { await model.refreshStatus() }
+            }
+            .liquidGlassActionButtonStyle(density: .compact)
+            .disabled(model.loading)
+
+            if model.proxyStatus.running {
+                Button("proxy.action.stop_api_proxy", role: .destructive) {
+                    Task { await model.stopProxy() }
+                }
+                .liquidGlassActionButtonStyle(prominent: true, tint: .red, density: .compact)
+                .disabled(model.loading)
+            } else {
+                Button("proxy.action.start_api_proxy") {
+                    Task { await model.startProxy() }
+                }
+                .liquidGlassActionButtonStyle(prominent: true, density: .compact)
+                .disabled(model.loading)
+            }
+        }
+    }
+
+    private func proxyPanel<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .padding(LayoutRules.proxyPanelPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frostedRoundedSurface(cornerRadius: 12)
     }
 }
 

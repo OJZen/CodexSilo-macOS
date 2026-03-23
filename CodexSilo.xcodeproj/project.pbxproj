@@ -71,7 +71,6 @@
 		AEEEE6E52FAC04AFF97354C1 /* ProxyPageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42AE96D25E97F39B6AAB9A8 /* ProxyPageModel.swift */; };
 		AEEEE6E52FAC04AFF97354C2 /* ProxySectionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A104A104A104A104A104A104 /* ProxySectionViews.swift */; };
 		B02FB96AC2AA18DA0EE1FE21 /* AppSettingsCodableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615AE055972ED222439110F8 /* AppSettingsCodableTests.swift */; };
-		B1D5612DF2DA63BE81C96320 /* figure.pool.swim.png in Resources */ = {isa = PBXBuildFile; fileRef = D97DE818E2B47EBF28DFEA3D /* figure.pool.swim.png */; };
 		BA5B276B09B95CA7284CDFA2 /* PlatformCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1928844F787DAA8E86F1AE1A /* PlatformCapabilities.swift */; };
 		BAA8370E04EE38AD6F28F62E /* NoticeBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EB189FA13DC18FA698AFB /* NoticeBanner.swift */; };
 		BAC63D41038D37A503641728 /* CommandRunnerTimeoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1996F591AEC73ED65ED1F9 /* CommandRunnerTimeoutTests.swift */; };
@@ -199,7 +198,6 @@
 		D3AE6ECBCE990356DEB5BBE0 /* ProxyPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPageView.swift; sourceTree = "<group>"; };
 		D42AE96D25E97F39B6AAB9A8 /* ProxyPageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyPageModel.swift; sourceTree = "<group>"; };
 		D593B8E21B1B66A64179E605 /* Notice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notice.swift; sourceTree = "<group>"; };
-		D97DE818E2B47EBF28DFEA3D /* figure.pool.swim.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = figure.pool.swim.png; sourceTree = "<group>"; };
 		DBF9C8262357FD7DC9AA4855 /* SettingsPageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPageModel.swift; sourceTree = "<group>"; };
 		DF11B93A2C05CC3B851D671A /* StoreFileRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreFileRepositoryTests.swift; sourceTree = "<group>"; };
 		E072B2DEE9973F725135D145 /* SwiftNativeProxyRuntimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftNativeProxyRuntimeService.swift; sourceTree = "<group>"; };
@@ -314,7 +312,6 @@
 			children = (
 				F9EF59A42F7137FE005E988A /* app_icon.png */,
 				F9EF59A22F7133BE005E988A /* icon.svg */,
-				D97DE818E2B47EBF28DFEA3D /* figure.pool.swim.png */,
 				B200F10CE9F433B769723734 /* Localizable.strings */,
 				18F9F7EDE5720DCB562AE727 /* proxyd-src */,
 			);
@@ -575,7 +572,6 @@
 				77F129ACAC53652FC1D928BB /* CodexSilo.icon in Resources */,
 				8E1F5360E158E01D0A36046D /* Localizable.strings in Resources */,
 				9ED52999272DAB575FAD8157 /* auth.rs in Resources */,
-				B1D5612DF2DA63BE81C96320 /* figure.pool.swim.png in Resources */,
 				BDEFAC6E557915562EA5D5A2 /* main.rs in Resources */,
 				366BB64F586C3259C64EFC29 /* models.rs in Resources */,
 				037DB8B9A2A1E5FA00C16E1E /* proxy_daemon.rs in Resources */,

@@ -49,30 +49,30 @@ struct CodexSiloApp: App {
     }
 
     private var menuBarIcon: Image {
-        if let icon = makeMenuBarSymbolImage() {
+        if let icon = makeMenuBarTemplateImage() {
             return Image(nsImage: icon)
         }
-        return Image(systemName: "figure.pool.swim")
+        return Image(systemName: "curlybraces")
     }
 
-    private func makeMenuBarSymbolImage() -> NSImage? {
-        guard let base = NSImage(systemSymbolName: "figure.pool.swim", accessibilityDescription: "CodexSilo") else {
+    private func makeMenuBarTemplateImage() -> NSImage? {
+        guard
+            let resourceURL = Bundle.main.url(forResource: "icon", withExtension: "svg"),
+            let base = NSImage(contentsOf: resourceURL)
+        else {
             return nil
         }
 
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 17, weight: .black, scale: .large)
-        let configured = base.withSymbolConfiguration(symbolConfig) ?? base
-
         let canvasSize = NSSize(width: 18, height: 18)
-        let symbolSize = configured.size
-        guard symbolSize.width > 0, symbolSize.height > 0 else {
-            configured.isTemplate = true
-            return configured
+        let baseSize = base.size
+        guard baseSize.width > 0, baseSize.height > 0 else {
+            base.isTemplate = true
+            return base
         }
 
-        // Keep aspect ratio while slightly enlarging to improve optical size.
-        let fitScale = min(canvasSize.width / symbolSize.width, canvasSize.height / symbolSize.height) * 1.08
-        let drawSize = NSSize(width: symbolSize.width * fitScale, height: symbolSize.height * fitScale)
+        // Preserve the SVG proportions while keeping a little breathing room in the menu bar.
+        let fitScale = min(canvasSize.width / baseSize.width, canvasSize.height / baseSize.height) * 0.9
+        let drawSize = NSSize(width: baseSize.width * fitScale, height: baseSize.height * fitScale)
         let drawRect = NSRect(
             x: (canvasSize.width - drawSize.width) / 2,
             y: (canvasSize.height - drawSize.height) / 2,
@@ -82,7 +82,7 @@ struct CodexSiloApp: App {
 
         let canvas = NSImage(size: canvasSize)
         canvas.lockFocus()
-        configured.draw(
+        base.draw(
             in: drawRect,
             from: .zero,
             operation: .sourceOver,
