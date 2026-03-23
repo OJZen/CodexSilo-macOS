@@ -162,13 +162,14 @@ private struct AccountConfigurationEditorView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: LayoutRules.accountEditorSectionSpacing) {
                     accountInfoSection
                     authJSONSection
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: LayoutRules.accountEditorContentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, LayoutRules.accountEditorHorizontalPadding)
+                .padding(.vertical, LayoutRules.accountEditorVerticalPadding)
             }
             .scrollIndicators(.hidden)
 
@@ -201,8 +202,10 @@ private struct AccountConfigurationEditorView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(isSaving)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .frame(maxWidth: LayoutRules.accountEditorContentMaxWidth, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, LayoutRules.accountEditorHorizontalPadding)
+            .padding(.vertical, LayoutRules.accountEditorFooterVerticalPadding)
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -231,14 +234,19 @@ private struct AccountConfigurationEditorView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
+        .frame(maxWidth: LayoutRules.accountEditorContentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, LayoutRules.accountEditorHorizontalPadding)
         .padding(.top, 18)
         .padding(.bottom, 14)
     }
 
     private var accountInfoSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 14) {
+        editorSectionCard(
+            title: "账户信息",
+            systemImage: "person.text.rectangle"
+        ) {
+            VStack(alignment: .leading, spacing: LayoutRules.accountEditorFieldSpacing) {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 12) {
                     GridRow {
                         formFieldLabel("账户名称")
@@ -256,29 +264,25 @@ private struct AccountConfigurationEditorView: View {
                 Toggle("保存后设为当前账号", isOn: $draft.setAsCurrent)
                     .toggleStyle(.switch)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 4)
-        } label: {
-            Label("账户信息", systemImage: "person.text.rectangle")
-                .font(.callout.weight(.medium))
         }
     }
 
     private var authJSONSection: some View {
-        GroupBox {
-            authJSONEditor
-                .frame(height: editorHeight)
-                .padding(12)
-                .background(jsonEditorBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .padding(.top, 4)
-        } label: {
-            Label {
-                Text(verbatim: "auth.json")
-            } icon: {
-                Image(systemName: "curlybraces.square")
+        editorSectionCard(
+            title: "auth.json",
+            systemImage: "curlybraces.square"
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("粘贴或修改完整的认证 JSON，保存时会按当前格式重新校验。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                authJSONEditor
+                    .frame(height: editorHeight)
+                    .padding(12)
+                    .background(jsonEditorBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-                .font(.callout.weight(.medium))
         }
     }
 
@@ -286,10 +290,10 @@ private struct AccountConfigurationEditorView: View {
         title: String,
         text: Binding<String>
     ) -> some View {
-        TextField("", text: text)
+        TextField(title, text: text)
             .textFieldStyle(.roundedBorder)
             .controlSize(.large)
-            .frame(maxWidth: 360)
+            .frame(maxWidth: .infinity)
             .accessibilityLabel(Text(title))
     }
 
@@ -297,7 +301,7 @@ private struct AccountConfigurationEditorView: View {
         Text(title)
             .font(.callout)
             .foregroundStyle(.secondary)
-            .frame(width: 76, alignment: .leading)
+            .frame(width: LayoutRules.accountEditorFormLabelWidth, alignment: .leading)
     }
 
     private var editorHeaderSymbolName: String {
@@ -331,10 +335,26 @@ private struct AccountConfigurationEditorView: View {
 
     private var editorHeight: CGFloat {
         #if canImport(AppKit)
-        max(420, jsonEditorHeight)
+        max(LayoutRules.accountEditorJSONMinHeight, jsonEditorHeight)
         #else
-        420
+        LayoutRules.accountEditorJSONMinHeight
         #endif
+    }
+
+    private func editorSectionCard<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: LayoutRules.sectionHeaderSpacing) {
+            Label(title, systemImage: systemImage)
+                .font(.headline.weight(.semibold))
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(LayoutRules.cardContentPadding)
+                .cardSurface(cornerRadius: LayoutRules.cardRadius)
+        }
     }
 }
 
