@@ -37,6 +37,52 @@ final class StoreFileRepositoryTests: XCTestCase {
         XCTAssertEqual(store.accounts.count, 0)
     }
 
+    func testLoadStoreDetectsExternalFileReplacement() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storePath = tempDir.appendingPathComponent("accounts.json")
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: storePath,
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key", isDirectory: false)
+        )
+
+        let repository = StoreFileRepository(paths: paths)
+        XCTAssertEqual(try repository.loadStore().accounts.count, 0)
+
+        let updatedStore = AccountsStore(
+            accounts: [
+                StoredAccount(
+                    id: "acct-1",
+                    label: "External",
+                    principalID: "user@example.com",
+                    email: "user@example.com",
+                    accountID: "external-account",
+                    planType: "pro",
+                    teamName: nil,
+                    teamAlias: nil,
+                    authJSON: .object([:]),
+                    addedAt: 1,
+                    updatedAt: 2,
+                    usage: nil,
+                    usageError: nil
+                )
+            ]
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(updatedStore).write(to: storePath, options: .atomic)
+
+        let reloadedStore = try repository.loadStore()
+        XCTAssertEqual(reloadedStore.accounts.map(\.label), ["External"])
+    }
+
     func testAccountSummariesPreferStoredCurrentSelectionOverAuthFallback() {
         let account = StoredAccount(
             id: "acct-1",
@@ -115,6 +161,59 @@ final class StoreFileRepositoryTests: XCTestCase {
             teamName: nil,
             teamAlias: nil,
             authJSON: .object([:]),
+            addedAt: 1,
+            updatedAt: 2,
+            usage: nil,
+            usageError: nil
+        )
+        let store = AccountsStore(
+            version: 1,
+            accounts: [plusAccount, proAccount],
+            currentSelection: CurrentAccountSelection(
+                accountID: plusAccount.accountID,
+                accountKey: plusAccount.accountKey,
+                variantKey: plusAccount.variantKey,
+                selectedAt: 123,
+                sourceDeviceID: "device-a"
+            ),
+            settings: .defaultValue
+        )
+
+        let summaries = store.accountSummaries(
+            currentAccountKey: plusAccount.accountKey,
+            currentVariantKey: plusAccount.variantKey
+        )
+
+        XCTAssertEqual(summaries.first(where: { $0.id == "acct-plus" })?.isCurrent, true)
+        XCTAssertEqual(summaries.first(where: { $0.id == "acct-pro" })?.isCurrent, false)
+    }
+
+    func testAccountSummariesDeriveSelectionIdentityFromAuthJSONWhenPrincipalIDIsMissing() {
+        let plusAccount = StoredAccount(
+            id: "acct-plus",
+            label: "Plus",
+            principalID: nil,
+            email: nil,
+            accountID: "shared-account",
+            planType: "plus",
+            teamName: nil,
+            teamAlias: nil,
+            authJSON: .object(["principal_id": .string("same@example.com")]),
+            addedAt: 1,
+            updatedAt: 2,
+            usage: nil,
+            usageError: nil
+        )
+        let proAccount = StoredAccount(
+            id: "acct-pro",
+            label: "Pro",
+            principalID: nil,
+            email: nil,
+            accountID: "shared-account",
+            planType: "pro",
+            teamName: nil,
+            teamAlias: nil,
+            authJSON: .object(["principal_id": .string("same@example.com")]),
             addedAt: 1,
             updatedAt: 2,
             usage: nil,

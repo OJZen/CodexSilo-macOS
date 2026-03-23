@@ -1,6 +1,24 @@
 import Foundation
 
 actor AccountsCoordinator {
+    private struct AccountsListCache {
+        let accounts: [StoredAccount]
+        let currentSelection: CurrentAccountSelection?
+        let currentAuthAccountKey: String?
+        let currentAuthVariantKey: String?
+        let summaries: [AccountSummary]
+
+        func matches(
+            store: AccountsStore,
+            currentAuthSelection: (accountKey: String?, variantKey: String?)
+        ) -> Bool {
+            accounts == store.accounts
+                && currentSelection == store.currentSelection
+                && currentAuthAccountKey == currentAuthSelection.accountKey
+                && currentAuthVariantKey == currentAuthSelection.variantKey
+        }
+    }
+
     private enum UsageRefreshPolicy {
         static let minimumRefreshIntervalSeconds: Int64 = 25
 
@@ -24,6 +42,7 @@ actor AccountsCoordinator {
     private let editorAppService: EditorAppServiceProtocol
     private let dateProvider: DateProviding
     private let runtimePlatform: RuntimePlatform
+    private var accountsListCache: AccountsListCache?
 
     init(
         storeRepository: AccountsStoreRepository,
@@ -49,17 +68,29 @@ actor AccountsCoordinator {
 
     func listAccounts() async throws -> [AccountSummary] {
         var store = try storeRepository.loadStore()
-        let didReconcile = Self.reconcileStoredAccountMetadata(in: &store, authRepository: authRepository)
-        let didEnrich = await enrichStoredWorkspaceMetadataIfNeeded(in: &store, forceRemoteCheck: false)
-        if didReconcile || didEnrich {
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
+        if let accountsListCache,
+           accountsListCache.matches(store: store, currentAuthSelection: currentAuthSelection) {
+            return accountsListCache.summaries
+        }
+        let reconciliation = Self.reconcileStoredAccountMetadata(
+            in: &store,
+            authRepository: authRepository
+        )
+        let didEnrich = await enrichStoredWorkspaceMetadataIfNeeded(
+            in: &store,
+            forceRemoteCheck: false,
+            extractedAuthByStoredAccountID: reconciliation.extractedAuthByStoredAccountID
+        )
+        if reconciliation.didChange || didEnrich {
             try storeRepository.saveStore(store)
         }
-        let currentAccountKey = authRepository.currentAuthAccountKey()
-        let currentVariantKey = authRepository.currentAuthVariantKey()
-        return store.accountSummaries(
-            currentAccountKey: currentAccountKey,
-            currentVariantKey: currentVariantKey
+        let summaries = store.accountSummaries(
+            currentAccountKey: currentAuthSelection.accountKey,
+            currentVariantKey: currentAuthSelection.variantKey
         )
+        cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        return summaries
     }
 
     func accountsOverviewCollapsed() throws -> Bool {
@@ -263,12 +294,13 @@ actor AccountsCoordinator {
             try authRepository.writeCurrentAuth(authJSON)
         }
 
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
         let effectiveCurrentAccountKey = shouldSetAsCurrent
             ? extracted.accountKey
-            : authRepository.currentAuthAccountKey()
+            : currentAuthSelection.accountKey
         let effectiveCurrentVariantKey = shouldSetAsCurrent
             ? extracted.variantKey
-            : authRepository.currentAuthVariantKey()
+            : currentAuthSelection.variantKey
         return toSummary(
             savedAccount,
             currentAccountKey: effectiveCurrentAccountKey,
@@ -291,11 +323,12 @@ actor AccountsCoordinator {
         store.accounts[index].teamAlias = normalizeTeamAlias(alias)
         store.accounts[index].updatedAt = dateProvider.unixSecondsNow()
         try storeRepository.saveStore(store)
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
 
         return toSummary(
             store.accounts[index],
-            currentAccountKey: authRepository.currentAuthAccountKey(),
-            currentVariantKey: authRepository.currentAuthVariantKey()
+            currentAccountKey: currentAuthSelection.accountKey,
+            currentVariantKey: currentAuthSelection.variantKey
         )
     }
 
@@ -383,8 +416,11 @@ actor AccountsCoordinator {
         let snapshot = try storeRepository.loadStore()
         let authRepository = self.authRepository
         let usageService = self.usageService
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
+        let shouldPersistPartialUpdates = onPartialUpdate != nil
 
         var latest = snapshot
+        var didChangeStore = false
         switch mode {
         case .parallel:
             try await withThrowingTaskGroup(of: StoredAccount.self, returning: Void.self) { group in
@@ -400,13 +436,17 @@ actor AccountsCoordinator {
                     }
                 }
                 for try await refreshed in group {
-                    latest = Self.mergeRefreshedAccount(refreshed, into: latest)
-                    try storeRepository.saveStore(latest)
+                    let didChange = Self.mergeRefreshedAccount(refreshed, into: &latest)
+                    guard didChange else { continue }
+                    didChangeStore = true
+                    if shouldPersistPartialUpdates {
+                        try storeRepository.saveStore(latest)
+                    }
                     if let onPartialUpdate {
                         await onPartialUpdate(
                             latest.accountSummaries(
-                                currentAccountKey: authRepository.currentAuthAccountKey(),
-                                currentVariantKey: authRepository.currentAuthVariantKey()
+                                currentAccountKey: currentAuthSelection.accountKey,
+                                currentVariantKey: currentAuthSelection.variantKey
                             )
                         )
                     }
@@ -421,48 +461,47 @@ actor AccountsCoordinator {
                     authRepository: authRepository,
                     usageService: usageService
                 )
-                latest = Self.mergeRefreshedAccount(refreshed, into: latest)
-                try storeRepository.saveStore(latest)
+                let didChange = Self.mergeRefreshedAccount(refreshed, into: &latest)
+                guard didChange else { continue }
+                didChangeStore = true
+                if shouldPersistPartialUpdates {
+                    try storeRepository.saveStore(latest)
+                }
                 if let onPartialUpdate {
                     await onPartialUpdate(
                         latest.accountSummaries(
-                            currentAccountKey: authRepository.currentAuthAccountKey(),
-                            currentVariantKey: authRepository.currentAuthVariantKey()
+                            currentAccountKey: currentAuthSelection.accountKey,
+                            currentVariantKey: currentAuthSelection.variantKey
                         )
                     )
                 }
             }
         }
 
-        return latest.accountSummaries(
-            currentAccountKey: authRepository.currentAuthAccountKey(),
-            currentVariantKey: authRepository.currentAuthVariantKey()
+        if didChangeStore, !shouldPersistPartialUpdates {
+            try storeRepository.saveStore(latest)
+        }
+
+        let summaries = latest.accountSummaries(
+            currentAccountKey: currentAuthSelection.accountKey,
+            currentVariantKey: currentAuthSelection.variantKey
         )
+        cacheAccountsList(store: latest, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        return summaries
     }
 
     private static func mergeRefreshedAccount(
         _ refreshed: StoredAccount,
-        into store: AccountsStore
-    ) -> AccountsStore {
-        var store = store
-        store.accounts = store.accounts.map { existing in
-            guard existing.id == refreshed.id else {
-                return existing
-            }
-            var merged = existing
-            merged.label = refreshed.label
-            merged.principalID = refreshed.principalID
-            merged.email = refreshed.email
-            merged.planType = refreshed.planType
-            merged.teamName = refreshed.teamName
-            merged.teamAlias = refreshed.teamAlias
-            merged.authJSON = refreshed.authJSON
-            merged.updatedAt = refreshed.updatedAt
-            merged.usage = refreshed.usage
-            merged.usageError = refreshed.usageError
-            return merged
+        into store: inout AccountsStore
+    ) -> Bool {
+        guard let index = store.accounts.firstIndex(where: { $0.id == refreshed.id }) else {
+            return false
         }
-        return store
+        guard store.accounts[index] != refreshed else {
+            return false
+        }
+        store.accounts[index] = refreshed
+        return true
     }
 
     func refreshWorkspaceMetadata(forceRemoteCheck: Bool) async throws -> [AccountSummary] {
@@ -474,10 +513,13 @@ actor AccountsCoordinator {
         if didChange {
             try storeRepository.saveStore(store)
         }
-        return store.accountSummaries(
-            currentAccountKey: authRepository.currentAuthAccountKey(),
-            currentVariantKey: authRepository.currentAuthVariantKey()
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
+        let summaries = store.accountSummaries(
+            currentAccountKey: currentAuthSelection.accountKey,
+            currentVariantKey: currentAuthSelection.variantKey
         )
+        cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        return summaries
     }
 
     private static func refreshAccount(
@@ -516,14 +558,16 @@ actor AccountsCoordinator {
     private static func reconcileStoredAccountMetadata(
         in store: inout AccountsStore,
         authRepository: AuthRepository
-    ) -> Bool {
+    ) -> (didChange: Bool, extractedAuthByStoredAccountID: [String: ExtractedAuth]) {
         var didChange = false
+        var extractedAuthByStoredAccountID: [String: ExtractedAuth] = [:]
 
         for index in store.accounts.indices {
             let storedAccount = store.accounts[index]
             guard let reconciled = try? authRepository.extractAuth(from: storedAccount.authJSON) else {
                 continue
             }
+            extractedAuthByStoredAccountID[storedAccount.id] = reconciled
 
             if store.accounts[index].email != reconciled.email {
                 store.accounts[index].email = reconciled.email
@@ -553,12 +597,13 @@ actor AccountsCoordinator {
             }
         }
 
-        return didChange
+        return (didChange, extractedAuthByStoredAccountID)
     }
 
     private func enrichStoredWorkspaceMetadataIfNeeded(
         in store: inout AccountsStore,
-        forceRemoteCheck: Bool
+        forceRemoteCheck: Bool,
+        extractedAuthByStoredAccountID: [String: ExtractedAuth] = [:]
     ) async -> Bool {
         guard let workspaceMetadataService else { return false }
 
@@ -567,7 +612,9 @@ actor AccountsCoordinator {
 
         for index in store.accounts.indices {
             let storedAccount = store.accounts[index]
-            guard let extracted = try? authRepository.extractAuth(from: storedAccount.authJSON) else {
+            let extracted = extractedAuthByStoredAccountID[storedAccount.id]
+                ?? (try? authRepository.extractAuth(from: storedAccount.authJSON))
+            guard let extracted else {
                 #if DEBUG
                 debugLog("workspace metadata lookup skipped for stored account \(storedAccount.id): failed to extract auth")
                 #endif
@@ -633,6 +680,20 @@ actor AccountsCoordinator {
         }
 
         return didChange
+    }
+
+    private func cacheAccountsList(
+        store: AccountsStore,
+        currentAuthSelection: (accountKey: String?, variantKey: String?),
+        summaries: [AccountSummary]
+    ) {
+        accountsListCache = AccountsListCache(
+            accounts: store.accounts,
+            currentSelection: store.currentSelection,
+            currentAuthAccountKey: currentAuthSelection.accountKey,
+            currentAuthVariantKey: currentAuthSelection.variantKey,
+            summaries: summaries
+        )
     }
 
     private func resolveRemoteWorkspaceName(
@@ -777,6 +838,14 @@ actor AccountsCoordinator {
         if let currentSelection = store.currentSelection {
             return (currentSelection.resolvedAccountKey, currentSelection.resolvedVariantKey)
         }
-        return (authRepository.currentAuthAccountKey(), authRepository.currentAuthVariantKey())
+        return currentAuthSelectionIdentifiers()
+    }
+
+    private func currentAuthSelectionIdentifiers() -> (accountKey: String?, variantKey: String?) {
+        if let auth = try? authRepository.readCurrentAuthOptional(),
+           let extracted = try? authRepository.extractAuth(from: auth) {
+            return (extracted.accountKey, extracted.variantKey)
+        }
+        return (authRepository.currentAuthAccountID(), nil)
     }
 }

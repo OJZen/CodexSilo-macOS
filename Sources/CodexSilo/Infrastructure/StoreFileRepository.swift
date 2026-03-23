@@ -1,9 +1,28 @@
 import Foundation
 
 final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
+    private struct StoreFileFingerprint: Equatable {
+        let fileID: UInt64?
+        let size: UInt64
+        let modificationDate: Date
+
+        static let missing = StoreFileFingerprint(
+            fileID: nil,
+            size: 0,
+            modificationDate: .distantPast
+        )
+    }
+
+    private struct CachedStoreSnapshot {
+        let fingerprint: StoreFileFingerprint
+        let store: AccountsStore
+    }
+
     private let paths: FileSystemPaths
     private let fileManager: FileManager
     private let dateProvider: DateProviding
+    private let cacheLock = NSLock()
+    private var cachedStoreSnapshot: CachedStoreSnapshot?
 
     init(paths: FileSystemPaths, fileManager: FileManager = .default, dateProvider: DateProviding = SystemDateProvider()) {
         self.paths = paths
@@ -13,8 +32,16 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
 
     func loadStore() throws -> AccountsStore {
         let path = paths.accountStorePath
-        guard fileManager.fileExists(atPath: path.path) else {
-            return AccountsStore()
+        let fingerprint = try fileFingerprint(at: path)
+
+        if let cached = cachedStore(matching: fingerprint) {
+            return cached
+        }
+
+        guard fingerprint != .missing else {
+            let emptyStore = AccountsStore()
+            cache(store: emptyStore, fingerprint: .missing)
+            return emptyStore
         }
 
         let data: Data
@@ -25,7 +52,9 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         }
 
         do {
-            return try decodeStore(from: data)
+            let store = try decodeStore(from: data)
+            cache(store: store, fingerprint: fingerprint)
+            return store
         } catch {
             if let recoveredData = Self.extractFirstJSONObjectData(from: data),
                let recoveredStore = try? decodeStore(from: recoveredData) {
@@ -54,6 +83,8 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         }
 
         try writeAtomically(data: data, to: paths.accountStorePath)
+        let fingerprint = try fileFingerprint(at: paths.accountStorePath)
+        cache(store: store, fingerprint: fingerprint)
     }
 
     private func decodeStore(from data: Data) throws -> AccountsStore {
@@ -96,6 +127,44 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
             }
             throw AppError.io(L10n.tr("error.store.atomic_write_failed_format", error.localizedDescription))
         }
+    }
+
+    private func fileFingerprint(at path: URL) throws -> StoreFileFingerprint {
+        guard fileManager.fileExists(atPath: path.path) else {
+            return .missing
+        }
+
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: path.path)
+            let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            let fileID = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+            let modificationDate = attributes[.modificationDate] as? Date ?? .distantPast
+            return StoreFileFingerprint(
+                fileID: fileID,
+                size: size,
+                modificationDate: modificationDate
+            )
+        } catch {
+            if !fileManager.fileExists(atPath: path.path) {
+                return .missing
+            }
+            throw AppError.io(L10n.tr("error.store.read_failed_format", error.localizedDescription))
+        }
+    }
+
+    private func cachedStore(matching fingerprint: StoreFileFingerprint) -> AccountsStore? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        guard cachedStoreSnapshot?.fingerprint == fingerprint else {
+            return nil
+        }
+        return cachedStoreSnapshot?.store
+    }
+
+    private func cache(store: AccountsStore, fingerprint: StoreFileFingerprint) {
+        cacheLock.lock()
+        cachedStoreSnapshot = CachedStoreSnapshot(fingerprint: fingerprint, store: store)
+        cacheLock.unlock()
     }
 
     static func extractFirstJSONObjectData(from data: Data) -> Data? {

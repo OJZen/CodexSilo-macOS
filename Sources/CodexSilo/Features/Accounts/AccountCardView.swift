@@ -12,28 +12,32 @@ struct AccountCardView: View {
     @Environment(\.locale) private var locale
     @Environment(\.colorScheme) private var colorScheme
 
-    private var presentation: AccountCardPresentation {
-        AccountCardPresentation(account: account, isCollapsed: isCollapsed, locale: locale)
-    }
-
     var body: some View {
+        let presentation = AccountCardPresentation(
+            account: account,
+            isCollapsed: isCollapsed,
+            locale: locale
+        )
+        let toneColor = toneColor(for: presentation.accent)
+        let healthPalette = AccountCardHealthPalette(health: presentation.health, colorScheme: colorScheme)
+
         VStack(alignment: .leading, spacing: isCollapsed ? 7 : 8) {
-            header
+            header(presentation)
 
             if isCollapsed {
-                compactUsageSection
+                compactUsageSection(presentation)
             } else {
                 Divider()
-                expandedUsageSection
+                expandedUsageSection(presentation)
             }
 
             Spacer(minLength: 0)
-            footer
+            footer(presentation)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(isCollapsed ? 10 : 12)
-        .background { healthBackdrop }
-        .cardSurface(cornerRadius: LayoutRules.cardRadius, tint: cardSurfaceTint)
+        .background { healthBackdrop(healthPalette) }
+        .cardSurface(cornerRadius: LayoutRules.cardRadius, tint: cardSurfaceTint(healthPalette: healthPalette, toneColor: toneColor))
         .shadow(
             color: account.isCurrent ? currentShadowColor : .clear,
             radius: account.isCurrent ? 20 : 0,
@@ -45,7 +49,7 @@ struct AccountCardView: View {
         )
     }
 
-    private var header: some View {
+    private func header(_ presentation: AccountCardPresentation) -> some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -99,7 +103,7 @@ struct AccountCardView: View {
         .frame(minHeight: isCollapsed ? 34 : 44, alignment: .topLeading)
     }
 
-    private var compactUsageSection: some View {
+    private func compactUsageSection(_ presentation: AccountCardPresentation) -> some View {
         HStack(spacing: 10) {
             CompactUsageMetric(
                 title: presentation.fiveHourWindow.title,
@@ -115,14 +119,14 @@ struct AccountCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var expandedUsageSection: some View {
+    private func expandedUsageSection(_ presentation: AccountCardPresentation) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             usageSection(presentation.fiveHourWindow)
             usageSection(presentation.oneWeekWindow)
         }
     }
 
-    private var footer: some View {
+    private func footer(_ presentation: AccountCardPresentation) -> some View {
         HStack(spacing: 6) {
             if account.isCurrent {
                 currentBadge
@@ -132,12 +136,12 @@ struct AccountCardView: View {
 
             Spacer(minLength: 0)
 
-            footerMeta
+            footerMeta(presentation)
         }
         .frame(minHeight: isCollapsed ? 22 : 28, alignment: .bottomLeading)
     }
 
-    private var footerMeta: some View {
+    private func footerMeta(_ presentation: AccountCardPresentation) -> some View {
         VStack(alignment: .trailing, spacing: 0) {
             HStack(spacing: 4) {
                 Image(systemName: "clock")
@@ -264,20 +268,8 @@ struct AccountCardView: View {
         return message.isEmpty ? nil : message
     }
 
-    private func usageTint(for remainingPercent: Double?) -> Color {
-        guard let remainingPercent else { return .green }
-        switch remainingPercent {
-        case ..<20:
-            return .red
-        case ..<50:
-            return .orange
-        default:
-            return .green
-        }
-    }
-
-    private var toneColor: Color {
-        switch presentation.accent {
+    private func toneColor(for accent: AccountCardAccent) -> Color {
+        switch accent {
         case .orange:
             .orange
         case .pink:
@@ -291,8 +283,20 @@ struct AccountCardView: View {
         }
     }
 
+    private func usageTint(for remainingPercent: Double?) -> Color {
+        guard let remainingPercent else { return .green }
+        switch remainingPercent {
+        case ..<20:
+            return .red
+        case ..<50:
+            return .orange
+        default:
+            return .green
+        }
+    }
+
     @ViewBuilder
-    private var healthBackdrop: some View {
+    private func healthBackdrop(_ healthPalette: AccountCardHealthPalette?) -> some View {
         if let palette = healthPalette {
             let shape = RoundedRectangle(cornerRadius: LayoutRules.cardRadius, style: .continuous)
 
@@ -318,7 +322,10 @@ struct AccountCardView: View {
         }
     }
 
-    private var cardSurfaceTint: Color? {
+    private func cardSurfaceTint(
+        healthPalette: AccountCardHealthPalette?,
+        toneColor: Color
+    ) -> Color? {
         if let palette = healthPalette {
             return palette.surfaceTint
         }
@@ -349,10 +356,6 @@ struct AccountCardView: View {
 
     private var currentShadowColor: Color {
         currentBadgeColor.opacity(colorScheme == .dark ? 0.16 : 0.12)
-    }
-
-    private var healthPalette: AccountCardHealthPalette? {
-        AccountCardHealthPalette(health: presentation.health, colorScheme: colorScheme)
     }
 }
 

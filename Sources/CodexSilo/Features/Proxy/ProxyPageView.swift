@@ -83,11 +83,12 @@ struct ProxyPageView: View {
     private var refreshedAtText: String? {
         guard let epoch = model.lastRefreshedAt, epoch > 0 else { return nil }
         let date = Date(timeIntervalSince1970: TimeInterval(epoch))
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.dateStyle = Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return LocalizedDateFormatterCache.shared.string(
+            from: date,
+            locale: .autoupdatingCurrent,
+            dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
+            timeStyle: .short
+        )
     }
 
     private var remoteControlCalloutSection: some View {

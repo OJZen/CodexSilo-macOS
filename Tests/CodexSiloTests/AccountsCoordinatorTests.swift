@@ -157,6 +157,95 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(savedStore.accounts.first?.teamName, "remote-space")
     }
 
+    func testListAccountsReusesPreparedResultsWhenStoreIsUnchanged() async throws {
+        let now: Int64 = 1_763_216_000
+        let authRepository = CountingMultiAccountAuthRepository(
+            extractedByAccountID: [
+                "account-1": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "token-1",
+                    email: "first@example.com",
+                    planType: "team",
+                    teamName: nil
+                ),
+                "account-2": ExtractedAuth(
+                    accountID: "account-2",
+                    accessToken: "token-2",
+                    email: "second@example.com",
+                    planType: "team",
+                    teamName: nil
+                )
+            ],
+            currentAccountID: "account-1"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                version: 1,
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "First",
+                        email: nil,
+                        accountID: "account-1",
+                        planType: nil,
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Second",
+                        email: nil,
+                        accountID: "account-2",
+                        planType: nil,
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-2")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: nil,
+                settings: .defaultValue
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "team",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            workspaceMetadataService: StubWorkspaceMetadataService(
+                metadata: [
+                    WorkspaceMetadata(accountID: "account-1", workspaceName: "remote-1", structure: "workspace"),
+                    WorkspaceMetadata(accountID: "account-2", workspaceName: "remote-2", structure: "workspace")
+                ]
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            codexCLIService: StubCodexCLIService(),
+            editorAppService: StubEditorAppService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let first = try await coordinator.listAccounts()
+        let second = try await coordinator.listAccounts()
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(authRepository.extractCallCount, 2)
+    }
+
     func testImportCurrentAuthPrefersRemoteWorkspaceMetadata() async throws {
         let now: Int64 = 1_763_216_000
         let storeRepository = InMemoryAccountsStoreRepository(store: AccountsStore())
@@ -479,6 +568,95 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(accounts, partialUpdates.last)
     }
 
+    func testRefreshAllUsagePersistsOnceWhenPartialUpdatesAreNotRequested() async throws {
+        let now: Int64 = 1_763_216_000
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                version: 1,
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "First",
+                        email: "first@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object([:]),
+                        addedAt: now,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Second",
+                        email: "second@example.com",
+                        accountID: "account-2",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object([:]),
+                        addedAt: now,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: nil,
+                settings: .defaultValue
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: MultiAccountAuthRepository(
+                extractedByAccountID: [
+                    "account-1": ExtractedAuth(
+                        accountID: "account-1",
+                        accessToken: "token-1",
+                        email: "first@example.com",
+                        planType: "pro",
+                        teamName: nil
+                    ),
+                    "account-2": ExtractedAuth(
+                        accountID: "account-2",
+                        accessToken: "token-2",
+                        email: "second@example.com",
+                        planType: "pro",
+                        teamName: nil
+                    )
+                ],
+                currentAccountID: "account-1"
+            ),
+            usageService: AccountIDUsageService(
+                results: [
+                    "account-1": UsageSnapshot(
+                        fetchedAt: now,
+                        planType: "pro",
+                        fiveHour: UsageWindow(usedPercent: 20, windowSeconds: 18_000, resetAt: nil),
+                        oneWeek: nil,
+                        credits: nil
+                    ),
+                    "account-2": UsageSnapshot(
+                        fetchedAt: now,
+                        planType: "pro",
+                        fiveHour: UsageWindow(usedPercent: 80, windowSeconds: 18_000, resetAt: nil),
+                        oneWeek: nil,
+                        credits: nil
+                    )
+                ]
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            codexCLIService: StubCodexCLIService(),
+            editorAppService: StubEditorAppService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        _ = try await coordinator.refreshAllUsage(force: true)
+
+        XCTAssertEqual(storeRepository.saveCount, 1)
+    }
+
     func testSwitchAccountAppliesMacSideEffectsInCurrentBuild() async throws {
         let now: Int64 = 1_763_216_000
         let account = StoredAccount(
@@ -738,6 +916,165 @@ final class AccountsCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(model.isRefreshSpinnerActive)
         XCTAssertTrue(model.canRefreshUsageAction)
+    }
+
+    @MainActor
+    func testTrayMenuRefreshNowReusesPulledAccountsWithoutSecondListPass() async {
+        let now: Int64 = 1_763_216_000
+        let authRepository = CountingMultiAccountAuthRepository(
+            extractedByAccountID: [
+                "account-1": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "token-1",
+                    email: "tray@example.com",
+                    planType: "pro",
+                    teamName: nil
+                )
+            ],
+            currentAccountID: "account-1"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Tray",
+                        email: "tray@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                settings: .defaultValue
+            )
+        )
+        let accountsCoordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            codexCLIService: StubCodexCLIService(),
+            editorAppService: StubEditorAppService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = TrayMenuModel(
+            accountsCoordinator: accountsCoordinator,
+            settingsCoordinator: SettingsCoordinator(
+                storeRepository: storeRepository,
+                launchAtStartupService: StubLaunchAtStartupService()
+            ),
+            cloudSyncService: StubAccountsCloudSyncService(
+                pullResult: AccountsCloudSyncPullResult(
+                    didUpdateAccounts: true,
+                    remoteSyncedAt: now
+                )
+            ),
+            currentAccountSelectionSyncService: nil,
+            backgroundRefreshPolicy: .init(
+                initialRefreshDelay: .seconds(1),
+                cloudReconciliationInterval: .seconds(1),
+                usageRefreshInterval: .seconds(30),
+                refreshUsageOnRecurringTick: false,
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
+            ),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        await model.refreshNow(forceUsageRefresh: false)
+
+        XCTAssertEqual(authRepository.extractCallCount, 1)
+    }
+
+    @MainActor
+    func testTrayMenuRefreshNowReusesUsageRefreshResultWithoutSecondListPass() async {
+        let now: Int64 = 1_763_216_000
+        let authRepository = CountingMultiAccountAuthRepository(
+            extractedByAccountID: [
+                "account-1": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "token-1",
+                    email: "tray@example.com",
+                    planType: "pro",
+                    teamName: nil
+                )
+            ],
+            currentAccountID: "account-1"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Tray",
+                        email: "tray@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                settings: .defaultValue
+            )
+        )
+        let accountsCoordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: UsageWindow(usedPercent: 25, windowSeconds: 18_000, resetAt: nil),
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            codexCLIService: StubCodexCLIService(),
+            editorAppService: StubEditorAppService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = TrayMenuModel(
+            accountsCoordinator: accountsCoordinator,
+            settingsCoordinator: SettingsCoordinator(
+                storeRepository: storeRepository,
+                launchAtStartupService: StubLaunchAtStartupService()
+            ),
+            cloudSyncService: nil,
+            currentAccountSelectionSyncService: nil,
+            backgroundRefreshPolicy: .init(
+                initialRefreshDelay: .seconds(1),
+                cloudReconciliationInterval: .seconds(1),
+                usageRefreshInterval: .seconds(30),
+                refreshUsageOnRecurringTick: false,
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
+            ),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        await model.refreshNow(forceUsageRefresh: true)
+
+        XCTAssertEqual(authRepository.extractCallCount, 1)
     }
 
     @MainActor
@@ -1341,6 +1678,7 @@ final class AccountsCoordinatorTests: XCTestCase {
 
 private final class InMemoryAccountsStoreRepository: AccountsStoreRepository, @unchecked Sendable {
     private var store: AccountsStore
+    private(set) var saveCount = 0
 
     init(store: AccountsStore) {
         self.store = store
@@ -1352,6 +1690,7 @@ private final class InMemoryAccountsStoreRepository: AccountsStoreRepository, @u
 
     func saveStore(_ store: AccountsStore) throws {
         self.store = store
+        saveCount += 1
     }
 }
 
@@ -1467,6 +1806,37 @@ private actor ManualRefreshCallCounter {
     func increment() {
         value += 1
     }
+}
+
+private struct StubLaunchAtStartupService: LaunchAtStartupServiceProtocol {
+    func setEnabled(_ enabled: Bool) throws {
+        _ = enabled
+    }
+
+    func syncWithStoreValue(_ enabled: Bool) throws {
+        _ = enabled
+    }
+}
+
+private final class StubAccountsCloudSyncService: AccountsCloudSyncServiceProtocol, @unchecked Sendable {
+    private let pullResult: AccountsCloudSyncPullResult
+
+    init(pullResult: AccountsCloudSyncPullResult) {
+        self.pullResult = pullResult
+    }
+
+    func pushLocalAccountsIfNeeded() async throws {}
+
+    func pullRemoteAccountsIfNeeded(
+        currentTime: Int64,
+        maximumSnapshotAgeSeconds: Int64
+    ) async throws -> AccountsCloudSyncPullResult {
+        _ = currentTime
+        _ = maximumSnapshotAgeSeconds
+        return pullResult
+    }
+
+    func ensurePushSubscriptionIfNeeded() async throws {}
 }
 
 private final class BlockingAccountsManualRefreshService: AccountsManualRefreshServiceProtocol, @unchecked Sendable {
@@ -1689,6 +2059,42 @@ private final class MultiAccountAuthRepository: AuthRepository, @unchecked Senda
     func currentAuthAccountID() -> String? { currentAccountIDValue }
 }
 
+private final class CountingMultiAccountAuthRepository: AuthRepository, @unchecked Sendable {
+    private let extractedByAccountID: [String: ExtractedAuth]
+    private let currentAccountIDValue: String?
+    private(set) var extractCallCount = 0
+
+    init(extractedByAccountID: [String: ExtractedAuth], currentAccountID: String?) {
+        self.extractedByAccountID = extractedByAccountID
+        self.currentAccountIDValue = currentAccountID
+    }
+
+    func readCurrentAuth() throws -> JSONValue { .null }
+    func readCurrentAuthOptional() throws -> JSONValue? { nil }
+    func readAuth(from url: URL) throws -> JSONValue {
+        _ = url
+        return .null
+    }
+    func writeCurrentAuth(_ auth: JSONValue) throws {
+        _ = auth
+    }
+    func removeCurrentAuth() throws {}
+    func makeChatGPTAuth(from tokens: ChatGPTOAuthTokens) throws -> JSONValue {
+        _ = tokens
+        return .null
+    }
+    func extractAuth(from auth: JSONValue) throws -> ExtractedAuth {
+        extractCallCount += 1
+        guard case .object(let payload) = auth,
+              case .string(let accountID)? = payload["account_id"],
+              let extracted = extractedByAccountID[accountID] else {
+            throw AppError.invalidData("Missing extracted auth for test payload")
+        }
+        return extracted
+    }
+    func currentAuthAccountID() -> String? { currentAccountIDValue }
+}
+
 private final class PlanVariantAuthRepository: AuthRepository, @unchecked Sendable {
     private let planTypeValue: String
     private let emailValue: String
@@ -1786,4 +2192,3 @@ private final class RecordingEditorAppService: EditorAppServiceProtocol, @unchec
         return ([], nil)
     }
 }
-

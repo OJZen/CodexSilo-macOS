@@ -210,8 +210,10 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         if syncDecision.shouldPushLocalSnapshot {
             try await pushCloudAccountsIfNeeded(failOnError: false)
         }
-        _ = try await reconcileCurrentAccountSelection(failOnError: false)
-        latestAccounts = try await accountsCoordinator.listAccounts()
+        let selectionPullResult = try await reconcileCurrentAccountSelection(failOnError: false)
+        if selectionPullResult.didUpdateSelection {
+            latestAccounts = try await accountsCoordinator.listAccounts()
+        }
 
         accounts = latestAccounts
         scheduleWorkspaceMetadataRefresh(forceRemoteCheck: true)
@@ -287,10 +289,6 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
             onPartialUpdate: nil
         )
 
-        if cloudPullResult.didUpdateAccounts {
-            latestAccounts = try await accountsCoordinator.listAccounts()
-        }
-
         if syncDecision.shouldPushLocalSnapshot {
             try await pushCloudAccountsIfNeeded(failOnError: failOnCloudSyncError)
         }
@@ -325,12 +323,14 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         bypassUsageThrottle: Bool,
         onPartialUpdate: (@MainActor ([AccountSummary]) -> Void)?
     ) async throws -> [AccountSummary] {
+        var latestAccounts: [AccountSummary]?
+
         if forceUsageRefresh {
             beginRemoteUsageRefreshActivity()
             defer { endRemoteUsageRefreshActivity() }
 
             if prefersSerialUsageRefresh {
-                _ = try await accountsCoordinator.refreshAllUsageSerially(
+                latestAccounts = try await accountsCoordinator.refreshAllUsageSerially(
                     force: bypassUsageThrottle,
                     onPartialUpdate: { accounts in
                         guard let onPartialUpdate else { return }
@@ -340,7 +340,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                     }
                 )
             } else {
-                _ = try await accountsCoordinator.refreshAllUsage(
+                latestAccounts = try await accountsCoordinator.refreshAllUsage(
                     force: bypassUsageThrottle,
                     onPartialUpdate: { accounts in
                         guard let onPartialUpdate else { return }
@@ -350,9 +350,13 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                     }
                 )
             }
-            if autoSmartSwitchEnabled {
-                _ = try await accountsCoordinator.autoSmartSwitchIfNeeded()
+            if autoSmartSwitchEnabled,
+               try await accountsCoordinator.autoSmartSwitchIfNeeded() != nil {
+                latestAccounts = try await accountsCoordinator.listAccounts()
             }
+        }
+        if let latestAccounts {
+            return latestAccounts
         }
         return try await accountsCoordinator.listAccounts()
     }

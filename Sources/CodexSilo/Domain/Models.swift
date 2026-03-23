@@ -169,17 +169,11 @@ struct StoredAccount: Codable, Equatable, Identifiable {
         case usageError
     }
 
-    var accountKey: String {
-        AccountIdentity.accountKey(
-            principalID: principalID ?? AccountIdentity.principalID(
-                from: authJSON,
-                email: email,
-                fallbackAccountID: accountID
-            ),
-            email: email,
-            accountID: accountID
-        )
+    fileprivate var resolvedIdentity: StoredAccountIdentity {
+        StoredAccountIdentity(account: self)
     }
+
+    var accountKey: String { resolvedIdentity.accountKey }
 
     var resolvedPlanType: String? {
         usage?.planType
@@ -187,36 +181,55 @@ struct StoredAccount: Codable, Equatable, Identifiable {
             ?? ((try? ExtractedAuth.fromStoredAuth(authJSON))?.planType)
     }
 
-    var variantKey: String {
-        AccountIdentity.variantKey(
-            principalID: principalID ?? AccountIdentity.principalID(
-                from: authJSON,
-                email: email,
-                fallbackAccountID: accountID
-            ),
-            email: email,
-            accountID: accountID,
-            planType: resolvedPlanType
-        )
-    }
+    var variantKey: String { resolvedIdentity.variantKey }
 
     func matchesSelectionIdentifier(_ identifier: String?) -> Bool {
-        guard let identifier,
-              let normalizedIdentifier = AccountIdentity.normalizedAccountID(identifier) else {
-            return false
-        }
-        return normalizedIdentifier == accountKey || normalizedIdentifier == accountID
+        resolvedIdentity.matchesSelection(accountKey: identifier, variantKey: nil)
     }
 
     func matchesSelection(
         accountKey: String?,
         variantKey: String?
     ) -> Bool {
+        resolvedIdentity.matchesSelection(accountKey: accountKey, variantKey: variantKey)
+    }
+}
+
+private struct StoredAccountIdentity {
+    let accountKey: String
+    let variantKey: String
+    private let normalizedAccountID: String
+
+    init(account: StoredAccount) {
+        let resolvedPrincipalID = account.principalID ?? AccountIdentity.principalID(
+            from: account.authJSON,
+            email: account.email,
+            fallbackAccountID: account.accountID
+        )
+        let accountKey = AccountIdentity.accountKey(
+            principalID: resolvedPrincipalID,
+            email: account.email,
+            accountID: account.accountID
+        )
+        let resolvedPlanType = account.usage?.planType
+            ?? account.planType
+            ?? ((try? ExtractedAuth.fromStoredAuth(account.authJSON))?.planType)
+
+        self.accountKey = accountKey
+        self.variantKey = "\(accountKey)|\(AccountIdentity.normalizePlanTypeKey(resolvedPlanType))"
+        normalizedAccountID = AccountIdentity.normalizedAccountID(account.accountID) ?? account.accountID
+    }
+
+    func matchesSelection(accountKey: String?, variantKey: String?) -> Bool {
         if let variantKey,
            let normalizedVariantKey = AccountIdentity.variantIdentifier(variantKey: variantKey) {
             return normalizedVariantKey == self.variantKey
         }
-        return matchesSelectionIdentifier(accountKey)
+        guard let accountKey,
+              let normalizedIdentifier = AccountIdentity.normalizedAccountID(accountKey) else {
+            return false
+        }
+        return normalizedIdentifier == self.accountKey || normalizedIdentifier == normalizedAccountID
     }
 }
 
@@ -334,17 +347,22 @@ extension AccountsStore {
         currentAccountKey: String?,
         currentVariantKey: String? = nil
     ) -> [AccountSummary] {
+        let preparedAccounts = accounts.map {
+            PreparedAccountSummary(account: $0, identity: $0.resolvedIdentity)
+        }
         let resolvedSelection = resolvedCurrentSelectionIdentifiers(
+            preparedAccounts: preparedAccounts,
             fallbackAuthAccountKey: currentAccountKey,
             fallbackAuthVariantKey: currentVariantKey
         )
 
-        return accounts.map { account in
-            AccountSummary(
+        return preparedAccounts.map { prepared in
+            let account = prepared.account
+            return AccountSummary(
                 id: account.id,
                 label: account.label,
-                accountKey: account.accountKey,
-                variantKey: account.variantKey,
+                accountKey: prepared.identity.accountKey,
+                variantKey: prepared.identity.variantKey,
                 email: account.email,
                 accountID: account.accountID,
                 planType: account.planType,
@@ -354,7 +372,7 @@ extension AccountsStore {
                 updatedAt: account.updatedAt,
                 usage: account.usage,
                 usageError: account.usageError,
-                isCurrent: account.matchesSelection(
+                isCurrent: prepared.identity.matchesSelection(
                     accountKey: resolvedSelection.accountKey,
                     variantKey: resolvedSelection.variantKey
                 )
@@ -367,12 +385,13 @@ extension AccountsStore {
     }
 
     private func resolvedCurrentSelectionIdentifiers(
+        preparedAccounts: [PreparedAccountSummary],
         fallbackAuthAccountKey: String?,
         fallbackAuthVariantKey: String?
     ) -> (accountKey: String?, variantKey: String?) {
         if let selection = currentSelection,
-           accounts.contains(where: {
-               $0.matchesSelection(
+           preparedAccounts.contains(where: {
+               $0.identity.matchesSelection(
                    accountKey: selection.resolvedAccountKey,
                    variantKey: selection.resolvedVariantKey
                )
@@ -381,6 +400,11 @@ extension AccountsStore {
         }
         return (fallbackAuthAccountKey, fallbackAuthVariantKey)
     }
+}
+
+private struct PreparedAccountSummary {
+    let account: StoredAccount
+    let identity: StoredAccountIdentity
 }
 
 struct UsageSnapshot: Codable, Equatable {

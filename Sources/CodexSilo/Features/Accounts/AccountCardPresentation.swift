@@ -184,20 +184,22 @@ struct AccountCardPresentation: Equatable {
 
     private static func formatResetAt(_ epoch: Int64?, locale: Locale) -> String {
         guard let epoch else { return "--" }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.dateStyle = .short
-        formatter.timeStyle = .medium
-        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+        return LocalizedDateFormatterCache.shared.string(
+            from: Date(timeIntervalSince1970: TimeInterval(epoch)),
+            locale: locale,
+            dateStyle: .short,
+            timeStyle: .medium
+        )
     }
 
     private static func formatRefreshAt(_ epoch: Int64, locale: Locale) -> String {
         guard epoch > 0 else { return "--" }
         let date = Date(timeIntervalSince1970: TimeInterval(epoch))
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.dateStyle = Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return LocalizedDateFormatterCache.shared.string(
+            from: date,
+            locale: locale,
+            dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
+            timeStyle: .short
+        )
     }
 }
