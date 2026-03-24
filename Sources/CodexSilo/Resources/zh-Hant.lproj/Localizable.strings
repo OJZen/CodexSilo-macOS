@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "編輯器重啟目標";
 "settings.section.capability_matrix" = "能力清單";
 "settings.section.remote_servers_json" = "遠端伺服器 JSON";
-"settings.remote_servers_hint" = "維護 `RemoteServerConfig` 陣列。";
 "settings.save_remote_servers" = "儲存遠端伺服器";
 "settings.notice.updated" = "設定已更新";
 "settings.notice.restart_target_updated" = "重啟目標已更新";

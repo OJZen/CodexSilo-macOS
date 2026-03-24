@@ -550,27 +550,12 @@ struct SwitchAccountExecutionResult: Equatable {
     )
 }
 
-struct RemoteServerConfig: Codable, Equatable, Identifiable, Sendable {
-    var id: String
-    var label: String
-    var host: String
-    var sshPort: Int
-    var sshUser: String
-    var authMode: String
-    var identityFile: String?
-    var privateKey: String?
-    var password: String?
-    var remoteDir: String
-    var listenPort: Int
-}
-
 struct AppSettings: Codable, Equatable {
     var launchAtStartup: Bool
     var launchCodexAfterSwitch: Bool
     var autoRefreshAccounts: Bool
     var autoSmartSwitch: Bool
     var autoStartApiProxy: Bool
-    var remoteServers: [RemoteServerConfig]
     var locale: String
 
     enum CodingKeys: String, CodingKey {
@@ -579,7 +564,6 @@ struct AppSettings: Codable, Equatable {
         case autoRefreshAccounts
         case autoSmartSwitch
         case autoStartApiProxy
-        case remoteServers
         case locale
     }
 
@@ -589,7 +573,6 @@ struct AppSettings: Codable, Equatable {
         autoRefreshAccounts: Bool,
         autoSmartSwitch: Bool,
         autoStartApiProxy: Bool,
-        remoteServers: [RemoteServerConfig],
         locale: String
     ) {
         self.launchAtStartup = launchAtStartup
@@ -597,7 +580,6 @@ struct AppSettings: Codable, Equatable {
         self.autoRefreshAccounts = autoRefreshAccounts
         self.autoSmartSwitch = autoSmartSwitch
         self.autoStartApiProxy = autoStartApiProxy
-        self.remoteServers = remoteServers
         self.locale = AppLocale.resolve(locale).identifier
     }
 
@@ -610,7 +592,6 @@ struct AppSettings: Codable, Equatable {
         autoRefreshAccounts = try container.decodeIfPresent(Bool.self, forKey: .autoRefreshAccounts) ?? fallback.autoRefreshAccounts
         autoSmartSwitch = try container.decodeIfPresent(Bool.self, forKey: .autoSmartSwitch) ?? fallback.autoSmartSwitch
         autoStartApiProxy = try container.decodeIfPresent(Bool.self, forKey: .autoStartApiProxy) ?? fallback.autoStartApiProxy
-        remoteServers = try container.decodeIfPresent([RemoteServerConfig].self, forKey: .remoteServers) ?? fallback.remoteServers
 
         let rawLocale = try container.decodeIfPresent(String.self, forKey: .locale) ?? fallback.locale
         locale = AppLocale.resolve(rawLocale).identifier
@@ -623,7 +604,6 @@ struct AppSettings: Codable, Equatable {
         try container.encode(autoRefreshAccounts, forKey: .autoRefreshAccounts)
         try container.encode(autoSmartSwitch, forKey: .autoSmartSwitch)
         try container.encode(autoStartApiProxy, forKey: .autoStartApiProxy)
-        try container.encode(remoteServers, forKey: .remoteServers)
         try container.encode(locale, forKey: .locale)
     }
 
@@ -634,7 +614,6 @@ struct AppSettings: Codable, Equatable {
             autoRefreshAccounts: true,
             autoSmartSwitch: false,
             autoStartApiProxy: false,
-            remoteServers: [],
             locale: AppLocale.automatic.identifier
         )
     }
@@ -646,7 +625,6 @@ struct AppSettingsPatch {
     var autoRefreshAccounts: Bool? = nil
     var autoSmartSwitch: Bool? = nil
     var autoStartApiProxy: Bool? = nil
-    var remoteServers: [RemoteServerConfig]? = nil
     var locale: String? = nil
 }
 
@@ -670,60 +648,6 @@ struct ApiProxyStatus: Codable, Equatable {
         activeAccountLabel: nil,
         lastError: nil
     )
-}
-
-struct RemoteProxyStatus: Codable, Equatable, Sendable {
-    var installed: Bool
-    var serviceInstalled: Bool
-    var running: Bool
-    var enabled: Bool
-    var serviceName: String
-    var pid: Int?
-    var baseURL: String
-    var apiKey: String?
-    var lastError: String?
-}
-
-struct ProxyControlSnapshot: Codable, Equatable {
-    var syncedAt: Int64
-    var sourceDeviceID: String
-    var proxyStatus: ApiProxyStatus
-    var preferredProxyPort: Int?
-    var autoStartProxy: Bool
-    var remoteServers: [RemoteServerConfig]
-    var remoteStatusesSyncedAt: Int64?
-    var remoteStatuses: [String: RemoteProxyStatus]
-    var remoteLogs: [String: String]
-    var lastHandledCommandID: String?
-    var lastCommandError: String?
-}
-
-enum ProxyControlCommandKind: String, Codable {
-    case refreshStatus
-    case startProxy
-    case stopProxy
-    case refreshAPIKey
-    case setAutoStartProxy
-    case addRemoteServer
-    case saveRemoteServer
-    case removeRemoteServer
-    case refreshRemote
-    case deployRemote
-    case startRemote
-    case stopRemote
-    case readRemoteLogs
-}
-
-struct ProxyControlCommand: Codable, Equatable, Identifiable {
-    var id: String
-    var createdAt: Int64
-    var sourceDeviceID: String
-    var kind: ProxyControlCommandKind
-    var preferredProxyPort: Int?
-    var autoStartProxy: Bool?
-    var remoteServer: RemoteServerConfig?
-    var remoteServerID: String?
-    var logLines: Int?
 }
 
 struct PendingUpdateInfo: Equatable {

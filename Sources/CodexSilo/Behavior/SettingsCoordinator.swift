@@ -321,7 +321,6 @@ actor SettingsCoordinator {
         if let value = patch.autoRefreshAccounts { settings.autoRefreshAccounts = value }
         if let value = patch.autoSmartSwitch { settings.autoSmartSwitch = value }
         if let value = patch.autoStartApiProxy { settings.autoStartApiProxy = value }
-        if let value = patch.remoteServers { settings.remoteServers = value }
         if let value = patch.locale { settings.locale = AppLocale.resolve(value).identifier }
 
         store.settings = settings

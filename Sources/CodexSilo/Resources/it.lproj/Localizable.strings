@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "Editor da riavviare";
 "settings.section.capability_matrix" = "Matrice capacità";
 "settings.section.remote_servers_json" = "JSON server remoti";
-"settings.remote_servers_hint" = "Mantieni un array di `RemoteServerConfig`.";
 "settings.save_remote_servers" = "Salva server remoti";
 "settings.notice.updated" = "Impostazioni aggiornate";
 "settings.notice.restart_target_updated" = "Destinazione riavvio aggiornata";

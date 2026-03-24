@@ -50,5 +50,6 @@ final class AppSettingsCodableTests: XCTestCase {
 
         XCTAssertFalse(json.contains("restartEditorsOnSwitch"))
         XCTAssertFalse(json.contains("restartEditorTargets"))
+        XCTAssertFalse(json.contains("remoteServers"))
     }
 }

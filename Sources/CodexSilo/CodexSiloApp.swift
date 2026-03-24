@@ -28,7 +28,6 @@ struct CodexSiloApp: App {
         Task { @MainActor in
             mainWindowController.showWindow()
             container.trayModel.startBackgroundRefresh()
-            await container.proxyControlBridge.start()
         }
     }
 

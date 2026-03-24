@@ -672,7 +672,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 autoRefreshAccounts: true,
                 autoSmartSwitch: false,
                 autoStartApiProxy: false,
-                remoteServers: [],
                 locale: AppLocale.english.identifier
             )
         )

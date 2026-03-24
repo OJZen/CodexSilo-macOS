@@ -45,14 +45,6 @@ protocol ProxyRuntimeService: Sendable {
     func syncAccountsStore() async throws
 }
 
-protocol RemoteProxyServiceProtocol: Sendable {
-    func status(server: RemoteServerConfig) async -> RemoteProxyStatus
-    func deploy(server: RemoteServerConfig) async throws -> RemoteProxyStatus
-    func start(server: RemoteServerConfig) async throws -> RemoteProxyStatus
-    func stop(server: RemoteServerConfig) async throws -> RemoteProxyStatus
-    func readLogs(server: RemoteServerConfig, lines: Int) async throws -> String
-}
-
 protocol UpdateCheckingService: Sendable {
     func checkForUpdates(currentVersion: String) async throws -> PendingUpdateInfo?
 }
@@ -81,18 +73,6 @@ protocol AccountsCloudSyncServiceProtocol: Sendable {
 
 protocol CloudSyncAvailabilityServiceProtocol: Sendable {
     func isICloudAvailable() async -> Bool
-}
-
-protocol ProxyControlCloudSyncServiceProtocol: Sendable {
-    func pushLocalSnapshot(_ snapshot: ProxyControlSnapshot) async throws
-    func pullRemoteSnapshot() async throws -> ProxyControlSnapshot?
-    func enqueueCommand(_ command: ProxyControlCommand) async throws
-    func pullPendingCommand() async throws -> ProxyControlCommand?
-    func ensurePushSubscriptionIfNeeded() async throws
-}
-
-protocol ProxyLocalCommandServiceProtocol: Sendable {
-    func performLocalCommand(_ command: ProxyControlCommand) async throws -> ProxyControlSnapshot
 }
 
 protocol CurrentAccountSelectionSyncServiceProtocol: Sendable {

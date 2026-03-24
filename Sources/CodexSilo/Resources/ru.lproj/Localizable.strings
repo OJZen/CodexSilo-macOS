@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "Целевой редактор для перезапуска";
 "settings.section.capability_matrix" = "Матрица возможностей";
 "settings.section.remote_servers_json" = "JSON удаленных серверов";
-"settings.remote_servers_hint" = "Поддерживайте массив `RemoteServerConfig`.";
 "settings.save_remote_servers" = "Сохранить удаленные серверы";
 "settings.notice.updated" = "Настройки обновлены";
 "settings.notice.restart_target_updated" = "Цель перезапуска обновлена";

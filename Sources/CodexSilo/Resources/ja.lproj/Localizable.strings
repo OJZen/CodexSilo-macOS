@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "再起動対象エディタ";
 "settings.section.capability_matrix" = "機能マトリクス";
 "settings.section.remote_servers_json" = "リモートサーバー JSON";
-"settings.remote_servers_hint" = "`RemoteServerConfig` の配列を維持します。";
 "settings.save_remote_servers" = "リモートサーバーを保存";
 "settings.notice.updated" = "設定を更新しました";
 "settings.notice.restart_target_updated" = "再起動対象を更新しました";

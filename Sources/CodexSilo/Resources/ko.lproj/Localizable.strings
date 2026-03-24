@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "편집기 재시작 대상";
 "settings.section.capability_matrix" = "기능 매트릭스";
 "settings.section.remote_servers_json" = "원격 서버 JSON";
-"settings.remote_servers_hint" = "`RemoteServerConfig` 배열을 유지하세요.";
 "settings.save_remote_servers" = "원격 서버 저장";
 "settings.notice.updated" = "설정이 업데이트되었습니다";
 "settings.notice.restart_target_updated" = "재시작 대상이 업데이트되었습니다";

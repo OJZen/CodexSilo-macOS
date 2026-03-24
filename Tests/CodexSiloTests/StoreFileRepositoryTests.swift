@@ -382,7 +382,6 @@ final class StoreFileRepositoryTests: XCTestCase {
                 autoRefreshAccounts: false,
                 autoSmartSwitch: true,
                 autoStartApiProxy: true,
-                remoteServers: [],
                 locale: "zh-Hans"
             )
         )

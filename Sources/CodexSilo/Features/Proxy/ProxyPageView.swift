@@ -7,11 +7,6 @@ struct ProxyPageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: LayoutRules.sectionSpacing) {
                 pageHeader
-
-                if model.usesRemoteMacControl, model.showsRemoteControlCallout {
-                    remoteControlCalloutSection
-                }
-
                 ApiProxySectionView(model: model)
             }
             .padding(.horizontal, LayoutRules.pagePadding)
@@ -89,23 +84,5 @@ struct ProxyPageView: View {
             dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
             timeStyle: .short
         )
-    }
-
-    private var remoteControlCalloutSection: some View {
-        SectionCard(
-            title: L10n.tr("proxy.callout.remote_control.title"),
-            headerTrailing: {
-                CloseGlassButton {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        model.dismissRemoteControlCallout()
-                    }
-                }
-            }
-        ) {
-            Text(L10n.tr("proxy.callout.remote_control.message"))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }

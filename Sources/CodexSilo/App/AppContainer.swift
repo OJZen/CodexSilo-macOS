@@ -6,7 +6,6 @@ struct AppContainer {
     let proxyModel: ProxyPageModel
     let settingsModel: SettingsPageModel
     let trayModel: TrayMenuModel
-    let proxyControlBridge: ProxyControlBridge
 
     static func liveOrCrash() -> AppContainer {
         do {
@@ -20,11 +19,6 @@ struct AppContainer {
                 paths: paths,
                 storeRepository: storeRepository,
                 authRepository: authRepository
-            )
-            let remoteService = RemoteProxyService(
-                repoRoot: RepositoryLocator.findRepoRoot(startingAt: URL(fileURLWithPath: #filePath)),
-                sourceAccountStorePath: paths.accountStorePath,
-                sourceAuthPath: paths.codexAuthPath
             )
             let chatGPTOAuthLoginService = OpenAIChatGPTOAuthLoginService(configPath: paths.codexConfigPath)
             let codexCLIService = CodexCLIService()
@@ -47,15 +41,7 @@ struct AppContainer {
                 currentAccountKey: authRepository.currentAuthAccountKey(),
                 currentVariantKey: authRepository.currentAuthVariantKey()
             )
-            let proxyCoordinator = ProxyCoordinator(
-                proxyService: proxyService,
-                remoteService: remoteService
-            )
-            let proxyControlBridge = ProxyControlBridge(
-                proxyCoordinator: proxyCoordinator,
-                settingsCoordinator: settingsCoordinator,
-                cloudSyncService: nil
-            )
+            let proxyCoordinator = ProxyCoordinator(proxyService: proxyService)
             let trayModel = TrayMenuModel(
                 accountsCoordinator: accountsCoordinator,
                 settingsCoordinator: settingsCoordinator,
@@ -77,9 +63,7 @@ struct AppContainer {
             )
             let proxyModel = ProxyPageModel(
                 coordinator: proxyCoordinator,
-                settingsCoordinator: settingsCoordinator,
-                proxyControlCloudSyncService: nil,
-                localProxyCommandService: proxyControlBridge
+                settingsCoordinator: settingsCoordinator
             )
             let settingsModel = SettingsPageModel(
                 settingsCoordinator: settingsCoordinator,
@@ -112,8 +96,7 @@ struct AppContainer {
                 accountsModel: accountsModel,
                 proxyModel: proxyModel,
                 settingsModel: settingsModel,
-                trayModel: trayModel,
-                proxyControlBridge: proxyControlBridge
+                trayModel: trayModel
             )
         } catch {
             fatalError("Failed to bootstrap Swift migration app: \(error.localizedDescription)")

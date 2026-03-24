@@ -4,7 +4,6 @@ import Combine
 extension Notification.Name {
     static let codexsiloAccountsSnapshotPushDidArrive = Notification.Name("codexsilo.accounts-snapshot.push")
     static let codexsiloCurrentAccountSelectionPushDidArrive = Notification.Name("codexsilo.current-account-selection.push")
-    static let codexsiloProxyControlPushDidArrive = Notification.Name("codexsilo.proxy-control.push")
 }
 
 struct CloudPushPullRetryPolicy: Sendable {

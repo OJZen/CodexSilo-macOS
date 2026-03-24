@@ -1,256 +1,145 @@
 import XCTest
-import Combine
 @testable import CodexSilo
 
 @MainActor
 final class ProxyPageModelTests: XCTestCase {
-    private var cancellables: Set<AnyCancellable> = []
-
-    func testLoadIfNeededIgnoresRemoteSnapshotFlowInCurrentBuild() async {
-        let snapshot = makeSnapshot()
-        let cloudSyncService = StubProxyControlCloudSyncService(baseSnapshot: snapshot)
+    func testLoadIfNeededUsesStoredAutoStartSettingAndRefreshesStatus() async {
+        let runtimeService = StubProxyRuntimeService(
+            statusResult: ApiProxyStatus(
+                running: true,
+                port: 9001,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:9001",
+                availableAccounts: 2,
+                activeAccountID: "acct-1",
+                activeAccountLabel: "Primary",
+                lastError: nil
+            )
+        )
         let model = makeModel(
-            proxyControlCloudSyncService: cloudSyncService,
-            runtimePlatform: .macOS
+            runtimeService: runtimeService,
+            store: AccountsStore(
+                settings: AppSettings(
+                    launchAtStartup: false,
+                    launchCodexAfterSwitch: true,
+                    autoRefreshAccounts: true,
+                    autoSmartSwitch: false,
+                    autoStartApiProxy: true,
+                    locale: AppLocale.english.identifier
+                )
+            ),
+            dateProvider: FixedDateProvider(unixSeconds: 1_763_216_000)
         )
 
         await model.loadIfNeeded()
 
-        let ensureCount = await cloudSyncService.readEnsurePushSubscriptionCallCount()
-        let commandKinds = await cloudSyncService.readEnqueuedCommandKinds()
-        XCTAssertEqual(ensureCount, 0)
-        XCTAssertTrue(commandKinds.isEmpty)
-        XCTAssertTrue(model.remoteServers.isEmpty)
-        XCTAssertTrue(model.remoteStatuses.isEmpty)
-        XCTAssertTrue(model.remoteLogs.isEmpty)
+        XCTAssertTrue(model.autoStartProxy)
+        XCTAssertTrue(model.proxyStatus.running)
+        XCTAssertEqual(model.preferredPortText, "9001")
+        XCTAssertEqual(model.lastRefreshedAt, 1_763_216_000)
     }
 
-    func testApplyRemoteSnapshotPublishesRefreshTimeWhenOnlyMetadataChanges() {
-        let model = makeModel()
-        let snapshot = makeSnapshot()
-
-        var changeCount = 0
-        model.objectWillChange
-            .sink { changeCount += 1 }
-            .store(in: &cancellables)
-
-        XCTAssertTrue(model.applyRemoteSnapshot(snapshot))
-        XCTAssertGreaterThan(changeCount, 0)
-        XCTAssertEqual(model.lastRefreshedAt, snapshot.syncedAt / 1_000)
-
-        changeCount = 0
-        var metadataOnlyUpdate = snapshot
-        metadataOnlyUpdate.syncedAt += 2_000
-        metadataOnlyUpdate.sourceDeviceID = "ios-device-2"
-        metadataOnlyUpdate.lastHandledCommandID = UUID().uuidString
-        metadataOnlyUpdate.lastCommandError = "ignored metadata change"
-
-        XCTAssertFalse(model.applyRemoteSnapshot(metadataOnlyUpdate))
-        XCTAssertEqual(changeCount, 1)
-        XCTAssertEqual(model.proxyStatus, snapshot.proxyStatus)
-        XCTAssertTrue(model.remoteServers.isEmpty)
-        XCTAssertTrue(model.remoteStatuses.isEmpty)
-        XCTAssertTrue(model.remoteLogs.isEmpty)
-        XCTAssertEqual(model.lastRefreshedAt, metadataOnlyUpdate.syncedAt / 1_000)
-    }
-
-    func testProxyPushNotificationIsIgnoredWhenRemoteControlDisabled() async throws {
-        let snapshot = makeSnapshot()
-        var updatedSnapshot = snapshot
-        updatedSnapshot.remoteStatuses["server-1"] = RemoteProxyStatus(
-            installed: true,
-            serviceInstalled: true,
-            running: false,
-            enabled: true,
-            serviceName: "codexsilo-proxy",
-            pid: nil,
-            baseURL: "http://1.2.3.4:8787",
-            apiKey: "remote-api-key-2",
-            lastError: "restarting"
-        )
-
-        let cloudSyncService = StubProxyControlCloudSyncService(
-            baseSnapshot: snapshot,
-            followUpSnapshots: [snapshot, updatedSnapshot]
+    func testBootstrapStartsProxyWhenAutoStartEnabledAndProxyIsStopped() async {
+        let runtimeService = StubProxyRuntimeService(
+            statusResult: .idle,
+            startResult: ApiProxyStatus(
+                running: true,
+                port: 8787,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:8787",
+                availableAccounts: 1,
+                activeAccountID: nil,
+                activeAccountLabel: nil,
+                lastError: nil
+            )
         )
         let model = makeModel(
-            proxyControlCloudSyncService: cloudSyncService,
-            runtimePlatform: .macOS
+            runtimeService: runtimeService,
+            dateProvider: FixedDateProvider(unixSeconds: 1_763_216_100)
         )
 
-        await model.loadIfNeeded()
+        await model.bootstrapOnAppLaunch(
+            using: AppSettings(
+                launchAtStartup: false,
+                launchCodexAfterSwitch: true,
+                autoRefreshAccounts: true,
+                autoSmartSwitch: false,
+                autoStartApiProxy: true,
+                locale: AppLocale.english.identifier
+            )
+        )
 
-        NotificationCenter.default.post(name: .codexsiloProxyControlPushDidArrive, object: nil)
-        try? await Task.sleep(for: .milliseconds(250))
-
-        let ensureCount = await cloudSyncService.readEnsurePushSubscriptionCallCount()
-        let commandKinds = await cloudSyncService.readEnqueuedCommandKinds()
-        XCTAssertEqual(ensureCount, 0)
-        XCTAssertTrue(commandKinds.isEmpty)
-        XCTAssertTrue(model.remoteStatuses.isEmpty)
+        XCTAssertEqual(runtimeService.startCalls, [nil])
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+        XCTAssertTrue(model.proxyStatus.running)
+        XCTAssertEqual(model.preferredPortText, "8787")
     }
 
-    func testLocalStartProxyUsesLocalCommandServiceForImmediateSync() async {
-        let snapshot = makeSnapshot()
-        let localCommandService = SpyProxyLocalCommandService(snapshot: snapshot)
-        let model = makeModel(localProxyCommandService: localCommandService)
+    func testStartProxyUsesPreferredPortAndPublishesSuccessNotice() async {
+        let runtimeService = StubProxyRuntimeService(
+            startResult: ApiProxyStatus(
+                running: true,
+                port: 8787,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:8787",
+                availableAccounts: 3,
+                activeAccountID: "acct-1",
+                activeAccountLabel: "Primary",
+                lastError: nil
+            )
+        )
+        let model = makeModel(runtimeService: runtimeService)
         model.preferredPortText = "8787"
 
         await model.startProxy()
 
-        XCTAssertEqual(model.proxyStatus, snapshot.proxyStatus)
-        XCTAssertEqual(localCommandService.commands.map(\.kind), [.startProxy])
-        XCTAssertEqual(localCommandService.commands.first?.preferredProxyPort, 8787)
+        XCTAssertEqual(runtimeService.startCalls, [8787])
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+        XCTAssertTrue(model.proxyStatus.running)
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(model.notice?.text, L10n.tr("proxy.notice.api_proxy_started"))
+    }
+
+    func testSetAutoStartProxyRevertsValueWhenSettingsUpdateFails() async {
+        let model = makeModel(storeRepository: FailingAccountsStoreRepository())
+
+        XCTAssertFalse(model.autoStartProxy)
+
+        await model.setAutoStartProxy(true)
+
+        XCTAssertFalse(model.autoStartProxy)
+        XCTAssertEqual(model.notice?.style, .error)
     }
 
     private func makeModel(
-        proxyControlCloudSyncService: ProxyControlCloudSyncServiceProtocol? = nil,
-        localProxyCommandService: ProxyLocalCommandServiceProtocol? = nil,
-        runtimePlatform: RuntimePlatform = .macOS
+        runtimeService: StubProxyRuntimeService = StubProxyRuntimeService(),
+        store: AccountsStore = AccountsStore(),
+        storeRepository: AccountsStoreRepository? = nil,
+        launchAtStartupService: StubLaunchAtStartupService = StubLaunchAtStartupService(),
+        dateProvider: DateProviding = FixedDateProvider(unixSeconds: 1_763_216_000)
     ) -> ProxyPageModel {
-        let proxyCoordinator = ProxyCoordinator(
-            proxyService: StubProxyRuntimeService(),
-            remoteService: StubRemoteProxyService()
-        )
+        let proxyCoordinator = ProxyCoordinator(proxyService: runtimeService)
         let settingsCoordinator = SettingsCoordinator(
-            storeRepository: InMemoryAccountsStoreRepository(store: AccountsStore()),
-            launchAtStartupService: StubLaunchAtStartupService()
+            storeRepository: storeRepository ?? InMemoryAccountsStoreRepository(store: store),
+            launchAtStartupService: launchAtStartupService
         )
 
         return ProxyPageModel(
             coordinator: proxyCoordinator,
             settingsCoordinator: settingsCoordinator,
-            proxyControlCloudSyncService: proxyControlCloudSyncService,
-            localProxyCommandService: localProxyCommandService,
-            runtimePlatform: runtimePlatform
-        )
-    }
-
-    private func makeSnapshot() -> ProxyControlSnapshot {
-        let server = RemoteServerConfig(
-            id: "server-1",
-            label: "Tokyo",
-            host: "1.2.3.4",
-            sshPort: 22,
-            sshUser: "root",
-            authMode: "keyPath",
-            identityFile: "~/.ssh/id_ed25519",
-            privateKey: nil,
-            password: nil,
-            remoteDir: "/opt/codex-tools",
-            listenPort: 8787
-        )
-        let proxyStatus = ApiProxyStatus(
-            running: true,
-            port: 8787,
-            apiKey: "api-key",
-            baseURL: "http://127.0.0.1:8787",
-            availableAccounts: 3,
-            activeAccountID: "acct-1",
-            activeAccountLabel: "Primary",
-            lastError: nil
-        )
-        let remoteStatus = RemoteProxyStatus(
-            installed: true,
-            serviceInstalled: true,
-            running: true,
-            enabled: true,
-            serviceName: "codexsilo-proxy",
-            pid: 42,
-            baseURL: "http://1.2.3.4:8787",
-            apiKey: "remote-api-key",
-            lastError: nil
-        )
-
-        return ProxyControlSnapshot(
-            syncedAt: 1_763_216_000_000,
-            sourceDeviceID: "ios-device-1",
-            proxyStatus: proxyStatus,
-            preferredProxyPort: 8787,
-            autoStartProxy: true,
-            remoteServers: [server],
-            remoteStatusesSyncedAt: 1_763_216_000_000,
-            remoteStatuses: [server.id: remoteStatus],
-            remoteLogs: [server.id: "hello"],
-            lastHandledCommandID: nil,
-            lastCommandError: nil
+            dateProvider: dateProvider
         )
     }
 }
 
-private actor StubProxyControlCloudSyncService: ProxyControlCloudSyncServiceProtocol {
-    private let baseSnapshot: ProxyControlSnapshot
-    private var followUpSnapshots: [ProxyControlSnapshot]
-    private var initialSnapshotPending = true
-    private var acknowledgedCommandID: String?
-    private(set) var ensurePushSubscriptionCallCount = 0
-    private(set) var enqueuedCommandKinds: [ProxyControlCommandKind] = []
-
-    init(
-        baseSnapshot: ProxyControlSnapshot,
-        followUpSnapshots: [ProxyControlSnapshot] = []
-    ) {
-        self.baseSnapshot = baseSnapshot
-        self.followUpSnapshots = followUpSnapshots
+private struct FailingAccountsStoreRepository: AccountsStoreRepository {
+    func loadStore() throws -> AccountsStore {
+        AccountsStore()
     }
 
-    func pushLocalSnapshot(_ snapshot: ProxyControlSnapshot) async throws {
-        _ = snapshot
-    }
-
-    func pullRemoteSnapshot() async throws -> ProxyControlSnapshot? {
-        if initialSnapshotPending {
-            initialSnapshotPending = false
-            return baseSnapshot
-        }
-
-        if let acknowledgedCommandID {
-            var acknowledgedSnapshot = baseSnapshot
-            acknowledgedSnapshot.lastHandledCommandID = acknowledgedCommandID
-            self.acknowledgedCommandID = nil
-            return acknowledgedSnapshot
-        }
-
-        if !followUpSnapshots.isEmpty {
-            return followUpSnapshots.removeFirst()
-        }
-
-        return nil
-    }
-
-    func enqueueCommand(_ command: ProxyControlCommand) async throws {
-        enqueuedCommandKinds.append(command.kind)
-        acknowledgedCommandID = command.id
-    }
-
-    func pullPendingCommand() async throws -> ProxyControlCommand? {
-        nil
-    }
-
-    func ensurePushSubscriptionIfNeeded() async throws {
-        ensurePushSubscriptionCallCount += 1
-    }
-
-    func readEnsurePushSubscriptionCallCount() -> Int {
-        ensurePushSubscriptionCallCount
-    }
-
-    func readEnqueuedCommandKinds() -> [ProxyControlCommandKind] {
-        enqueuedCommandKinds
-    }
-}
-
-private final class SpyProxyLocalCommandService: ProxyLocalCommandServiceProtocol, @unchecked Sendable {
-    private(set) var commands: [ProxyControlCommand] = []
-    private let snapshot: ProxyControlSnapshot
-
-    init(snapshot: ProxyControlSnapshot) {
-        self.snapshot = snapshot
-    }
-
-    func performLocalCommand(_ command: ProxyControlCommand) async throws -> ProxyControlSnapshot {
-        commands.append(command)
-        return snapshot
+    func saveStore(_ store: AccountsStore) throws {
+        _ = store
+        throw AppError.io("boom")
     }
 }
 
@@ -270,9 +159,22 @@ private final class InMemoryAccountsStoreRepository: AccountsStoreRepository, @u
     }
 }
 
+private struct FixedDateProvider: DateProviding {
+    let unixSeconds: Int64
+
+    func unixSecondsNow() -> Int64 {
+        unixSeconds
+    }
+}
+
 private struct StubLaunchAtStartupService: LaunchAtStartupServiceProtocol {
+    var setEnabledError: Error? = nil
+
     func setEnabled(_ enabled: Bool) throws {
         _ = enabled
+        if let setEnabledError {
+            throw setEnabledError
+        }
     }
 
     func syncWithStoreValue(_ enabled: Bool) throws {
@@ -280,48 +182,44 @@ private struct StubLaunchAtStartupService: LaunchAtStartupServiceProtocol {
     }
 }
 
-private struct StubProxyRuntimeService: ProxyRuntimeService {
-    func status() async -> ApiProxyStatus { .idle }
+private final class StubProxyRuntimeService: ProxyRuntimeService, @unchecked Sendable {
+    var statusResult: ApiProxyStatus
+    var startResult: ApiProxyStatus
+    var stopResult: ApiProxyStatus
+    var refreshAPIKeyResult: ApiProxyStatus
+    private(set) var startCalls: [Int?] = []
+    private(set) var syncAccountsStoreCallCount = 0
+
+    init(
+        statusResult: ApiProxyStatus = .idle,
+        startResult: ApiProxyStatus = .idle,
+        stopResult: ApiProxyStatus = .idle,
+        refreshAPIKeyResult: ApiProxyStatus = .idle
+    ) {
+        self.statusResult = statusResult
+        self.startResult = startResult
+        self.stopResult = stopResult
+        self.refreshAPIKeyResult = refreshAPIKeyResult
+    }
+
+    func status() async -> ApiProxyStatus {
+        statusResult
+    }
+
     func start(preferredPort: Int?) async throws -> ApiProxyStatus {
-        _ = preferredPort
-        return .idle
-    }
-    func stop() async -> ApiProxyStatus { .idle }
-    func refreshAPIKey() async throws -> ApiProxyStatus { .idle }
-    func syncAccountsStore() async throws {}
-}
-
-private struct StubRemoteProxyService: RemoteProxyServiceProtocol {
-    func status(server: RemoteServerConfig) async -> RemoteProxyStatus {
-        _ = server
-        return RemoteProxyStatus(
-            installed: false,
-            serviceInstalled: false,
-            running: false,
-            enabled: false,
-            serviceName: "",
-            pid: nil,
-            baseURL: "",
-            apiKey: nil,
-            lastError: nil
-        )
+        startCalls.append(preferredPort)
+        return startResult
     }
 
-    func deploy(server: RemoteServerConfig) async throws -> RemoteProxyStatus {
-        await status(server: server)
+    func stop() async -> ApiProxyStatus {
+        stopResult
     }
 
-    func start(server: RemoteServerConfig) async throws -> RemoteProxyStatus {
-        await status(server: server)
+    func refreshAPIKey() async throws -> ApiProxyStatus {
+        refreshAPIKeyResult
     }
 
-    func stop(server: RemoteServerConfig) async throws -> RemoteProxyStatus {
-        await status(server: server)
-    }
-
-    func readLogs(server: RemoteServerConfig, lines: Int) async throws -> String {
-        _ = server
-        _ = lines
-        return ""
+    func syncAccountsStore() async throws {
+        syncAccountsStoreCallCount += 1
     }
 }

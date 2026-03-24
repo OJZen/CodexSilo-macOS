@@ -55,7 +55,6 @@
 "settings.editor_restart_target" = "Doel-editor voor herstart";
 "settings.section.capability_matrix" = "Capaciteitenmatrix";
 "settings.section.remote_servers_json" = "Remote servers JSON";
-"settings.remote_servers_hint" = "Beheer een array van `RemoteServerConfig`.";
 "settings.save_remote_servers" = "Remote servers opslaan";
 "settings.notice.updated" = "Instellingen bijgewerkt";
 "settings.notice.restart_target_updated" = "Herstartdoel bijgewerkt";
