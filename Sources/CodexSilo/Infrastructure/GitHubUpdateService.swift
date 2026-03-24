@@ -2,7 +2,7 @@ import Foundation
 
 final class GitHubUpdateService: UpdateCheckingService, @unchecked Sendable {
     private let session: URLSession
-    private let endpoint = URL(string: "https://api.github.com/repos/170-carry/codex-tools/releases/latest")!
+    private let endpoint = URL(string: "https://api.github.com/repos/OJZen/CodexSilo-macOS/releases/latest")!
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -12,7 +12,7 @@ final class GitHubUpdateService: UpdateCheckingService, @unchecked Sendable {
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 12
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("codex-tools-swift/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("CodexSilo/1.0", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

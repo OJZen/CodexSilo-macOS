@@ -72,7 +72,9 @@ Sources/CodexSilo
 
 ## 发布
 
+- 本地私有发布配置：`.release.env`（参考 `.release.env.example`）
 - 发布脚本：`./scripts/release_macos.sh`
+- 发布并自动上传 GitHub Release：`./scripts/publish_release.sh`
 - 发布说明：[`docs/release-macos.md`](./docs/release-macos.md)
 
 ## 参考项目

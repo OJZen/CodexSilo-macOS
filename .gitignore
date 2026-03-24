@@ -17,3 +17,4 @@ CodexSilo.xcodeproj/project.xcworkspace/xcuserdata/
 .cache/
 .swift-home/
 .swiftpm/
+.release.env
