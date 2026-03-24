@@ -378,7 +378,6 @@ final class StoreFileRepositoryTests: XCTestCase {
             accountsOverviewCollapsed: true,
             settings: AppSettings(
                 launchAtStartup: launchAtStartup,
-                launchCodexAfterSwitch: false,
                 autoRefreshAccounts: false,
                 autoSmartSwitch: true,
                 autoStartApiProxy: true,

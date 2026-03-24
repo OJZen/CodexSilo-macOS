@@ -49,10 +49,6 @@ protocol UpdateCheckingService: Sendable {
     func checkForUpdates(currentVersion: String) async throws -> PendingUpdateInfo?
 }
 
-protocol CodexCLIServiceProtocol: Sendable {
-    func launchApp(workspacePath: String?) throws -> Bool
-}
-
 protocol ChatGPTOAuthLoginServiceProtocol: Sendable {
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens
 }

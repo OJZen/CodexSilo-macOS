@@ -295,7 +295,7 @@ final class AccountsPageModel: ObservableObject {
         defer { switchingAccountID = nil }
 
         do {
-            let execution = try await coordinator.switchAccountAndApplySettings(id: id)
+            try await coordinator.switchAccountAndApplySettings(id: id)
             let accounts = try await coordinator.listAccounts()
             guard let selectedAccount = accounts.first(where: { $0.id == id }) else {
                 throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
@@ -303,7 +303,7 @@ final class AccountsPageModel: ObservableObject {
             applyAccounts(accounts)
             publishAndSyncLocalAccountsMutation(accounts)
             syncCurrentAccountSelectionInBackground(accountID: selectedAccount.variantKey)
-            notice = buildSwitchNotice(execution: execution)
+            notice = NoticeMessage(style: .success, text: L10n.tr("accounts.notice.switch_done"))
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
         }
@@ -322,12 +322,12 @@ final class AccountsPageModel: ObservableObject {
                 return
             }
 
-            let execution = try await coordinator.switchAccountAndApplySettings(id: best.id)
+            try await coordinator.switchAccountAndApplySettings(id: best.id)
             let accounts = try await coordinator.listAccounts()
             applyAccounts(accounts)
             publishAndSyncLocalAccountsMutation(accounts)
             syncCurrentAccountSelectionInBackground(accountID: best.variantKey)
-            var switchNotice = buildSwitchNotice(execution: execution)
+            var switchNotice = NoticeMessage(style: .success, text: L10n.tr("accounts.notice.switch_done"))
             switchNotice.text = L10n.tr("accounts.notice.smart_switched_prefix_format", best.label, switchNotice.text)
             notice = switchNotice
         } catch {
@@ -420,16 +420,6 @@ final class AccountsPageModel: ObservableObject {
             return .empty(message: L10n.tr("accounts.empty.message.no_accounts"))
         }
         return .content(sorted)
-    }
-
-    private func buildSwitchNotice(execution: SwitchAccountExecutionResult) -> NoticeMessage {
-        if execution.usedFallbackCLI {
-            return NoticeMessage(
-                style: .info,
-                text: L10n.tr("accounts.notice.switch_done_fallback")
-            )
-        }
-        return NoticeMessage(style: .success, text: L10n.tr("accounts.notice.switch_done"))
     }
 
     private func applyAccounts(_ accounts: [AccountSummary]) {

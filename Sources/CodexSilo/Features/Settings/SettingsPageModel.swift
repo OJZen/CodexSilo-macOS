@@ -48,10 +48,6 @@ final class SettingsPageModel: ObservableObject {
         Task { await update(AppSettingsPatch(launchAtStartup: value)) }
     }
 
-    func setLaunchAfterSwitch(_ value: Bool) {
-        Task { await update(AppSettingsPatch(launchCodexAfterSwitch: value)) }
-    }
-
     func setAutoRefreshAccounts(_ value: Bool) {
         Task { await update(AppSettingsPatch(autoRefreshAccounts: value)) }
     }

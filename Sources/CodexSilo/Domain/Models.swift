@@ -542,17 +542,8 @@ struct ChatGPTOAuthTokens: Equatable, Sendable {
     var apiKey: String?
 }
 
-struct SwitchAccountExecutionResult: Equatable {
-    var usedFallbackCLI: Bool
-
-    static let idle = SwitchAccountExecutionResult(
-        usedFallbackCLI: false
-    )
-}
-
 struct AppSettings: Codable, Equatable {
     var launchAtStartup: Bool
-    var launchCodexAfterSwitch: Bool
     var autoRefreshAccounts: Bool
     var autoSmartSwitch: Bool
     var autoStartApiProxy: Bool
@@ -560,7 +551,6 @@ struct AppSettings: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case launchAtStartup
-        case launchCodexAfterSwitch
         case autoRefreshAccounts
         case autoSmartSwitch
         case autoStartApiProxy
@@ -569,14 +559,12 @@ struct AppSettings: Codable, Equatable {
 
     init(
         launchAtStartup: Bool,
-        launchCodexAfterSwitch: Bool,
         autoRefreshAccounts: Bool,
         autoSmartSwitch: Bool,
         autoStartApiProxy: Bool,
         locale: String
     ) {
         self.launchAtStartup = launchAtStartup
-        self.launchCodexAfterSwitch = launchCodexAfterSwitch
         self.autoRefreshAccounts = autoRefreshAccounts
         self.autoSmartSwitch = autoSmartSwitch
         self.autoStartApiProxy = autoStartApiProxy
@@ -588,7 +576,6 @@ struct AppSettings: Codable, Equatable {
         let fallback = AppSettings.defaultValue
 
         launchAtStartup = try container.decodeIfPresent(Bool.self, forKey: .launchAtStartup) ?? fallback.launchAtStartup
-        launchCodexAfterSwitch = try container.decodeIfPresent(Bool.self, forKey: .launchCodexAfterSwitch) ?? fallback.launchCodexAfterSwitch
         autoRefreshAccounts = try container.decodeIfPresent(Bool.self, forKey: .autoRefreshAccounts) ?? fallback.autoRefreshAccounts
         autoSmartSwitch = try container.decodeIfPresent(Bool.self, forKey: .autoSmartSwitch) ?? fallback.autoSmartSwitch
         autoStartApiProxy = try container.decodeIfPresent(Bool.self, forKey: .autoStartApiProxy) ?? fallback.autoStartApiProxy
@@ -600,7 +587,6 @@ struct AppSettings: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(launchAtStartup, forKey: .launchAtStartup)
-        try container.encode(launchCodexAfterSwitch, forKey: .launchCodexAfterSwitch)
         try container.encode(autoRefreshAccounts, forKey: .autoRefreshAccounts)
         try container.encode(autoSmartSwitch, forKey: .autoSmartSwitch)
         try container.encode(autoStartApiProxy, forKey: .autoStartApiProxy)
@@ -610,7 +596,6 @@ struct AppSettings: Codable, Equatable {
     static var defaultValue: AppSettings {
         AppSettings(
             launchAtStartup: false,
-            launchCodexAfterSwitch: true,
             autoRefreshAccounts: true,
             autoSmartSwitch: false,
             autoStartApiProxy: false,
@@ -621,7 +606,6 @@ struct AppSettings: Codable, Equatable {
 
 struct AppSettingsPatch {
     var launchAtStartup: Bool? = nil
-    var launchCodexAfterSwitch: Bool? = nil
     var autoRefreshAccounts: Bool? = nil
     var autoSmartSwitch: Bool? = nil
     var autoStartApiProxy: Bool? = nil

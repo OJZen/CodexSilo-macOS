@@ -21,7 +21,6 @@ final class ProxyPageModelTests: XCTestCase {
             store: AccountsStore(
                 settings: AppSettings(
                     launchAtStartup: false,
-                    launchCodexAfterSwitch: true,
                     autoRefreshAccounts: true,
                     autoSmartSwitch: false,
                     autoStartApiProxy: true,
@@ -61,7 +60,6 @@ final class ProxyPageModelTests: XCTestCase {
         await model.bootstrapOnAppLaunch(
             using: AppSettings(
                 launchAtStartup: false,
-                launchCodexAfterSwitch: true,
                 autoRefreshAccounts: true,
                 autoSmartSwitch: false,
                 autoStartApiProxy: true,

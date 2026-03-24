@@ -74,14 +74,6 @@ struct SettingsPageView: View {
             .toggleStyle(.switch)
 
             Toggle(isOn: Binding(
-                get: { model.settings.launchCodexAfterSwitch },
-                set: { model.setLaunchAfterSwitch($0) }
-            )) {
-                Label("settings.launch_codex_after_switch", systemImage: "terminal")
-            }
-            .toggleStyle(.switch)
-
-            Toggle(isOn: Binding(
                 get: { model.settings.autoRefreshAccounts },
                 set: { model.setAutoRefreshAccounts($0) }
             )) {

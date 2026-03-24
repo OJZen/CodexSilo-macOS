@@ -20,7 +20,6 @@
 
 "settings.section.general" = "General";
 "settings.launch_at_startup" = "Abrir al iniciar sesión";
-"settings.launch_codex_after_switch" = "Abrir Codex después del cambio";
 "settings.auto_refresh_accounts" = "Actualizar cuentas automáticamente";
 "settings.auto_start_api_proxy" = "Iniciar API Proxy automáticamente";
 "settings.section.deployment" = "Despliegue";
@@ -104,7 +103,6 @@
 "accounts.notice.already_best" = "La cuenta actual ya es la mejor opción disponible";
 "accounts.notice.smart_switched_prefix_format" = "Cambio inteligente a: %@ · %@";
 "accounts.notice.switch_done" = "Cuenta cambiada";
-"accounts.notice.switch_done_fallback" = "Cuenta cambiada (mediante comando codex app)";
 "accounts.notice.editor_restart_failed_format" = "Falló el reinicio del editor: %@";
 "accounts.notice.editor_restarted_format" = "Editores reiniciados: %@";
 
@@ -189,8 +187,6 @@
 "error.usage.invalid_response" = "invalid response";
 "error.http_server.invalid_port_format" = "Invalid port: %@";
 "error.http_server.request_too_large_format" = "Request payload exceeds the limit (%@)";
-"error.shell.timeout_format" = "Command timed out (%@s): %@";
-"error.shell.run_failed_format" = "Command execution failed: %@: %@";
 "error.update.github_api_invalid_response" = "Update check failed: invalid GitHub API response";
 "error.auth.auth_file_not_found" = "~/.codex/auth.json not found";
 "error.auth.auth_json_invalid_structure" = "auth.json has invalid structure";
@@ -205,10 +201,6 @@
 "error.auth.decode_id_token_failed" = "Failed to decode id_token";
 "error.json.unsupported_value" = "Unsupported JSON value";
 "error.json.unsupported_payload_type" = "Unsupported JSON payload type";
-"error.codex_cli.launch_login_failed_format" = "Failed to launch codex login: %@";
-"error.codex_cli.launch_app_open_failed" = "Failed to launch Codex.app";
-"error.codex_cli.launch_app_fallback_failed_format" = "Codex.app not found, and codex app fallback failed: %@";
-"error.codex_cli.executable_not_found" = "codex executable not found. Install Codex CLI or add it to PATH.";
 "error.oauth.browser_open_failed" = "Failed to open the browser sign-in page";
 "error.oauth.callback_server_start_failed" = "Failed to start the local sign-in callback service";
 "error.oauth.callback_state_mismatch" = "Sign-in callback validation failed. Try again.";

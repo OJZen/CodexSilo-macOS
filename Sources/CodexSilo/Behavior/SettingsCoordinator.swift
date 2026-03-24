@@ -317,7 +317,6 @@ actor SettingsCoordinator {
         var settings = store.settings
 
         if let value = patch.launchAtStartup { settings.launchAtStartup = value }
-        if let value = patch.launchCodexAfterSwitch { settings.launchCodexAfterSwitch = value }
         if let value = patch.autoRefreshAccounts { settings.autoRefreshAccounts = value }
         if let value = patch.autoSmartSwitch { settings.autoSmartSwitch = value }
         if let value = patch.autoStartApiProxy { settings.autoStartApiProxy = value }

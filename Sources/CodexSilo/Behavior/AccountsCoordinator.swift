@@ -38,7 +38,6 @@ actor AccountsCoordinator {
     private let usageService: UsageService
     private let workspaceMetadataService: WorkspaceMetadataService?
     private let chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol
-    private let codexCLIService: CodexCLIServiceProtocol
     private let dateProvider: DateProviding
     private var accountsListCache: AccountsListCache?
 
@@ -48,7 +47,6 @@ actor AccountsCoordinator {
         usageService: UsageService,
         workspaceMetadataService: WorkspaceMetadataService? = nil,
         chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
-        codexCLIService: CodexCLIServiceProtocol,
         dateProvider: DateProviding = SystemDateProvider()
     ) {
         self.storeRepository = storeRepository
@@ -56,7 +54,6 @@ actor AccountsCoordinator {
         self.usageService = usageService
         self.workspaceMetadataService = workspaceMetadataService
         self.chatGPTOAuthLoginService = chatGPTOAuthLoginService
-        self.codexCLIService = codexCLIService
         self.dateProvider = dateProvider
     }
 
@@ -335,30 +332,29 @@ actor AccountsCoordinator {
         try updateCurrentAccountProjection(account)
     }
 
-    func switchAccountAndApplySettings(id: String, workspacePath: String? = nil) throws -> SwitchAccountExecutionResult {
+    func switchAccountAndApplySettings(id: String) throws {
         let store = try storeRepository.loadStore()
         guard let account = store.accounts.first(where: { $0.id == id }) else {
             throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
         }
 
         try updateCurrentAccountProjection(account)
-        return try applySwitchSideEffects(settings: store.settings, workspacePath: workspacePath)
     }
 
-    func smartSwitch() async throws -> (AccountSummary, SwitchAccountExecutionResult)? {
+    func smartSwitch() async throws -> AccountSummary? {
         let sorted = AccountRanking.sortByRemaining(try await listAccounts())
         guard let best = sorted.first else { return nil }
-        let execution = try switchAccountAndApplySettings(id: best.id)
-        return (best, execution)
+        try switchAccountAndApplySettings(id: best.id)
+        return best
     }
 
-    func autoSmartSwitchIfNeeded() async throws -> (AccountSummary, SwitchAccountExecutionResult)? {
+    func autoSmartSwitchIfNeeded() async throws -> AccountSummary? {
         let accounts = try await listAccounts()
         guard let target = AccountRanking.pickAutoSwitchTarget(accounts) else {
             return nil
         }
-        let execution = try switchAccountAndApplySettings(id: target.id)
-        return (target, execution)
+        try switchAccountAndApplySettings(id: target.id)
+        return target
     }
 
     func addAccountViaLogin(customLabel: String?, timeoutSeconds: TimeInterval = 10 * 60) async throws -> AccountSummary {
@@ -795,19 +791,6 @@ actor AccountsCoordinator {
         // print("AccountsCoordinator:", message)
     }
     #endif
-
-    private func applySwitchSideEffects(
-        settings: AppSettings,
-        workspacePath: String?
-    ) throws -> SwitchAccountExecutionResult {
-        var result = SwitchAccountExecutionResult.idle
-
-        if settings.launchCodexAfterSwitch {
-            result.usedFallbackCLI = try codexCLIService.launchApp(workspacePath: workspacePath)
-        }
-
-        return result
-    }
 
     private func normalizedText(_ value: String?) -> String? {
         guard let value else { return nil }

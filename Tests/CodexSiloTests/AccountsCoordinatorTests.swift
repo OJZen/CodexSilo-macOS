@@ -43,7 +43,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 metadata: [WorkspaceMetadata(accountID: "account-1", workspaceName: "remote-space", structure: "workspace")]
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -92,7 +91,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -143,7 +141,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -231,7 +228,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 ]
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -261,7 +257,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 metadata: [WorkspaceMetadata(accountID: "account-1", workspaceName: "remote-space", structure: "workspace")]
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -291,7 +286,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 metadata: [WorkspaceMetadata(accountID: "account-1", workspaceName: "remote-space", structure: "workspace")]
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -338,7 +332,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             authRepository: StubAuthRepository(),
             usageService: usageService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -393,7 +386,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -444,7 +436,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             workspaceMetadataService: metadataService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -536,7 +527,6 @@ final class AccountsCoordinatorTests: XCTestCase {
             ),
             usageService: usageService,
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -637,69 +627,12 @@ final class AccountsCoordinatorTests: XCTestCase {
                 ]
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
         _ = try await coordinator.refreshAllUsage(force: true)
 
         XCTAssertEqual(storeRepository.saveCount, 1)
-    }
-
-    func testSwitchAccountLaunchesCodexAfterSwitchWhenConfigured() async throws {
-        let now: Int64 = 1_763_216_000
-        let account = StoredAccount(
-            id: "acct-1",
-            label: "Test",
-            email: "test@example.com",
-            accountID: "account-1",
-            planType: "pro",
-            teamName: nil,
-            teamAlias: nil,
-            authJSON: .object([:]),
-            addedAt: now,
-            updatedAt: now,
-            usage: nil,
-            usageError: nil
-        )
-        let store = AccountsStore(
-            version: 1,
-            accounts: [account],
-            currentSelection: nil,
-            settings: AppSettings(
-                launchAtStartup: false,
-                launchCodexAfterSwitch: true,
-                autoRefreshAccounts: true,
-                autoSmartSwitch: false,
-                autoStartApiProxy: false,
-                locale: AppLocale.english.identifier
-            )
-        )
-        let codexService = RecordingCodexCLIService()
-        let authRepository = RecordingAuthRepository(currentAccountID: nil)
-        let storeRepository = InMemoryAccountsStoreRepository(store: store)
-        let coordinator = AccountsCoordinator(
-            storeRepository: storeRepository,
-            authRepository: authRepository,
-            usageService: CountingUsageService(
-                result: UsageSnapshot(
-                    fetchedAt: now,
-                    planType: "pro",
-                    fiveHour: UsageWindow(usedPercent: 0, windowSeconds: 18_000, resetAt: nil),
-                    oneWeek: UsageWindow(usedPercent: 0, windowSeconds: 604_800, resetAt: nil),
-                    credits: nil
-                )
-            ),
-            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: codexService,
-            dateProvider: FixedDateProvider(now: now)
-        )
-
-        _ = try await coordinator.switchAccountAndApplySettings(id: account.id)
-
-        XCTAssertEqual(authRepository.writtenAccountCount, 1)
-        XCTAssertEqual(codexService.launchCallCount, 1)
-        XCTAssertEqual(try storeRepository.loadStore().currentSelection?.accountID, account.accountID)
     }
 
     @MainActor
@@ -731,7 +664,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -772,7 +704,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -800,7 +731,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
 
         let initialOverviewCollapsed = try await coordinator.accountsOverviewCollapsed()
@@ -828,7 +758,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
         let model = AccountsPageModel(
             coordinator: coordinator,
@@ -862,7 +791,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
 
         let started = expectation(description: "manual refresh started")
@@ -945,7 +873,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
         let model = TrayMenuModel(
@@ -1026,7 +953,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
         let model = TrayMenuModel(
@@ -1089,7 +1015,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
         let syncSpy = SpyAccountsLocalMutationSyncService()
         let model = AccountsPageModel(
@@ -1161,7 +1086,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1217,7 +1141,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1292,7 +1215,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1360,7 +1282,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1394,7 +1315,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
         )
 
         do {
@@ -1445,7 +1365,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1503,7 +1422,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1560,7 +1478,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -1616,7 +1533,6 @@ final class AccountsCoordinatorTests: XCTestCase {
                 )
             ),
             chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
-            codexCLIService: StubCodexCLIService(),
             dateProvider: FixedDateProvider(now: now)
         )
 
@@ -2119,22 +2035,5 @@ private final class StubChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtoc
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens {
         _ = timeoutSeconds
         return ChatGPTOAuthTokens(accessToken: "", refreshToken: "", idToken: "", apiKey: nil)
-    }
-}
-
-private final class StubCodexCLIService: CodexCLIServiceProtocol, @unchecked Sendable {
-    func launchApp(workspacePath: String?) throws -> Bool {
-        _ = workspacePath
-        return false
-    }
-}
-
-private final class RecordingCodexCLIService: CodexCLIServiceProtocol, @unchecked Sendable {
-    private(set) var launchCallCount = 0
-
-    func launchApp(workspacePath: String?) throws -> Bool {
-        _ = workspacePath
-        launchCallCount += 1
-        return false
     }
 }

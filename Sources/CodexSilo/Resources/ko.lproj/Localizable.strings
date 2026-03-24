@@ -20,7 +20,6 @@
 
 "settings.section.general" = "일반";
 "settings.launch_at_startup" = "로그인 시 실행";
-"settings.launch_codex_after_switch" = "전환 후 Codex 실행";
 "settings.auto_refresh_accounts" = "계정 정보를 자동으로 새로고침";
 "settings.auto_start_api_proxy" = "API 프록시 자동 시작";
 "settings.section.deployment" = "배포 모드";
@@ -104,7 +103,6 @@
 "accounts.notice.already_best" = "현재 계정이 이미 최적입니다";
 "accounts.notice.smart_switched_prefix_format" = "스마트 전환 대상: %@ · %@";
 "accounts.notice.switch_done" = "계정을 전환했습니다";
-"accounts.notice.switch_done_fallback" = "계정을 전환했습니다(codex app 명령 사용)";
 "accounts.notice.editor_restart_failed_format" = "편집기 재시작 실패: %@";
 "accounts.notice.editor_restarted_format" = "재시작된 편집기: %@";
 
@@ -189,8 +187,6 @@
 "error.usage.invalid_response" = "유효하지 않은 응답";
 "error.http_server.invalid_port_format" = "잘못된 포트입니다: %@";
 "error.http_server.request_too_large_format" = "요청 본문이 크기 제한(%@)을 초과했습니다";
-"error.shell.timeout_format" = "명령 실행 시간 초과 (%@초): %@";
-"error.shell.run_failed_format" = "명령 실행 실패: %@: %@";
 "error.update.github_api_invalid_response" = "업데이트 확인 실패: GitHub API 응답이 올바르지 않습니다";
 "error.auth.auth_file_not_found" = "~/.codex/auth.json을 찾을 수 없습니다";
 "error.auth.auth_json_invalid_structure" = "auth.json 구조가 올바르지 않습니다";
@@ -205,10 +201,6 @@
 "error.auth.decode_id_token_failed" = "id_token 디코딩에 실패했습니다";
 "error.json.unsupported_value" = "지원되지 않는 JSON 값입니다";
 "error.json.unsupported_payload_type" = "지원되지 않는 JSON payload 타입입니다";
-"error.codex_cli.launch_login_failed_format" = "codex login 실행 실패: %@";
-"error.codex_cli.launch_app_open_failed" = "Codex.app 실행 실패";
-"error.codex_cli.launch_app_fallback_failed_format" = "Codex.app을 찾지 못했고 codex app 대체 실행도 실패했습니다: %@";
-"error.codex_cli.executable_not_found" = "codex 실행 파일을 찾을 수 없습니다. Codex CLI를 설치하거나 PATH에 추가하세요.";
 "error.oauth.browser_open_failed" = "브라우저 로그인 페이지를 열지 못했습니다";
 "error.oauth.callback_server_start_failed" = "로컬 로그인 콜백 서비스를 시작하지 못했습니다";
 "error.oauth.callback_state_mismatch" = "로그인 콜백 검증에 실패했습니다. 다시 시도하세요.";

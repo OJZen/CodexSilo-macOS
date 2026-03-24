@@ -48,6 +48,7 @@ final class AppSettingsCodableTests: XCTestCase {
         let data = try JSONEncoder().encode(AppSettings.defaultValue)
         let json = try XCTUnwrap(String(data: data, encoding: .utf8))
 
+        XCTAssertFalse(json.contains("launchCodexAfterSwitch"))
         XCTAssertFalse(json.contains("restartEditorsOnSwitch"))
         XCTAssertFalse(json.contains("restartEditorTargets"))
         XCTAssertFalse(json.contains("remoteServers"))
