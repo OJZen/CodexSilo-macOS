@@ -309,5 +309,11 @@
 "error.transfer.unsupported_cipher_format" = "Unsupported encryption algorithm: %@";
 "error.transfer.decrypt_failed" = "Failed to decrypt the archive. Check the password and try again.";
 "error.transfer.invalid_payload_format" = "Failed to decode archive contents: %@";
+"settings.section.about" = "About";
+"settings.about.project_url" = "Project";
+"settings.about.version_format" = "Version %@";
+"settings.about.description" = "Follow my GitHub profile and the project repository for releases and updates.";
+"settings.about.github_profile" = "GitHub Profile";
+"settings.about.github_repository" = "Project Repository";
 "settings.quit_confirmation_title" = "Quit CodexSilo?";
 "settings.quit_confirmation_message" = "This will close the app and stop its background services until you open it again.";

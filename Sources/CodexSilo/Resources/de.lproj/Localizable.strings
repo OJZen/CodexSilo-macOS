@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Nicht unterstuetzter Verschluesselungsalgorithmus: %@";
 "error.transfer.decrypt_failed" = "Das Archiv konnte nicht entschluesselt werden. Ueberpruefe das Passwort und versuche es erneut.";
 "error.transfer.invalid_payload_format" = "Der Archivinhalt konnte nicht dekodiert werden: %@";
+"settings.section.about" = "Info";
+"settings.about.project_url" = "Projekt";
+"settings.about.version_format" = "Version %@";
+"settings.about.description" = "Folge meinem GitHub-Profil und dem Projekt-Repository fuer Releases und Updates.";
+"settings.about.github_profile" = "GitHub-Profil";
+"settings.about.github_repository" = "Projekt-Repository";
 "settings.quit_confirmation_title" = "CodexSilo beenden?";
 "settings.quit_confirmation_message" = "Dadurch wird die App geschlossen und ihre Hintergrunddienste werden bis zum naechsten Start angehalten.";

@@ -309,5 +309,11 @@
 "error.transfer.unsupported_cipher_format" = "不支持的加密算法：%@";
 "error.transfer.decrypt_failed" = "解密归档失败，请检查密码后重试。";
 "error.transfer.invalid_payload_format" = "归档内容解码失败：%@";
+"settings.section.about" = "关于";
+"settings.about.project_url" = "项目地址";
+"settings.about.version_format" = "版本 %@";
+"settings.about.description" = "可通过我的 GitHub 主页和项目仓库获取最新发布与更新。";
+"settings.about.github_profile" = "GitHub 主页";
+"settings.about.github_repository" = "项目仓库";
 "settings.quit_confirmation_title" = "确定要退出 CodexSilo 吗？";
 "settings.quit_confirmation_message" = "退出后应用及其后台服务会停止运行，直到你再次打开它。";

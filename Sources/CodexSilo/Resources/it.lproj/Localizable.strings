@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Algoritmo di crittografia non supportato: %@";
 "error.transfer.decrypt_failed" = "Impossibile decrittografare l'archivio. Controlla la password e riprova.";
 "error.transfer.invalid_payload_format" = "Impossibile decodificare il contenuto dell'archivio: %@";
+"settings.section.about" = "Informazioni";
+"settings.about.project_url" = "Progetto";
+"settings.about.version_format" = "Versione %@";
+"settings.about.description" = "Segui il mio profilo GitHub e il repository del progetto per release e aggiornamenti.";
+"settings.about.github_profile" = "Profilo GitHub";
+"settings.about.github_repository" = "Repository del progetto";
 "settings.quit_confirmation_title" = "Uscire da CodexSilo?";
 "settings.quit_confirmation_message" = "L'app verra chiusa e i servizi in background si fermeranno finche non la aprirai di nuovo.";

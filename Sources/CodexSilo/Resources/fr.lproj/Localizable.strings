@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Algorithme de chiffrement non pris en charge : %@";
 "error.transfer.decrypt_failed" = "Impossible de dechiffrer l'archive. Verifiez le mot de passe et reessayez.";
 "error.transfer.invalid_payload_format" = "Echec du decodage du contenu de l'archive : %@";
+"settings.section.about" = "A propos";
+"settings.about.project_url" = "Projet";
+"settings.about.version_format" = "Version %@";
+"settings.about.description" = "Suivez mon profil GitHub et le depot du projet pour les nouvelles versions et mises a jour.";
+"settings.about.github_profile" = "Profil GitHub";
+"settings.about.github_repository" = "Depot du projet";
 "settings.quit_confirmation_title" = "Quitter CodexSilo ?";
 "settings.quit_confirmation_message" = "Cela fermera l'application et arretera ses services en arriere-plan jusqu'a sa prochaine ouverture.";

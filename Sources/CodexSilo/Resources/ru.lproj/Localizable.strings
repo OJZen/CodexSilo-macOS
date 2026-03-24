@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Nepodderzhivaemyi algoritm shifrovaniya: %@";
 "error.transfer.decrypt_failed" = "Ne udalos rasshifrovat arkhiv. Proverte parol i povtorite popytku.";
 "error.transfer.invalid_payload_format" = "Ne udalos dekodirovat soderzhimoe arkhiva: %@";
+"settings.section.about" = "O prilozhenii";
+"settings.about.project_url" = "Proekt";
+"settings.about.version_format" = "Versiya %@";
+"settings.about.description" = "Sledite za moim profilem GitHub i repozitoriem proekta, chtoby poluchat relizy i obnovleniya.";
+"settings.about.github_profile" = "Profil GitHub";
+"settings.about.github_repository" = "Repozitorii proekta";
 "settings.quit_confirmation_title" = "Vyiti iz CodexSilo?";
 "settings.quit_confirmation_message" = "Prilozhenie budet zakryto, a ego fonovye sluzhby ostanovleny do sleduyushchego zapuska.";

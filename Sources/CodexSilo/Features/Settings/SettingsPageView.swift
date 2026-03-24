@@ -3,6 +3,8 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct SettingsPageView: View {
+    private static let githubRepositoryURL = URL(string: "https://github.com/OJZen/CodexSilo-macOS")!
+
     @ObservedObject var model: SettingsPageModel
     @State private var transferDialogMode: SettingsTransferDialogMode?
     @State private var isShowingQuitConfirmation = false
@@ -17,9 +19,13 @@ struct SettingsPageView: View {
                 languageSection
                 switchBehaviorSection
                 dataTransferSection
+                aboutSection
             }
             .formStyle(.grouped)
             .scrollIndicators(.hidden)
+
+            versionFooter
+                .padding(.horizontal, LayoutRules.pagePadding)
         }
         .padding(.top, LayoutRules.pageTopPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -150,6 +156,31 @@ struct SettingsPageView: View {
         }
     }
 
+    private var aboutSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                aboutLinkRow(
+                    titleKey: "settings.about.project_url",
+                    value: "OJZen/CodexSilo-macOS",
+                    url: Self.githubRepositoryURL,
+                    systemImage: "arrow.triangle.branch"
+                )
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Label(L10n.tr("settings.section.about"), systemImage: "info.circle")
+        }
+    }
+
+    private var versionFooter: some View {
+        Text(L10n.tr("settings.about.version_format", AppVersion.current))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.bottom, LayoutRules.pageBottomPadding)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
     private var exportButton: some View {
         Button {
             transferDialogMode = .exportArchive
@@ -172,6 +203,31 @@ struct SettingsPageView: View {
 
     private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    @ViewBuilder
+    private func aboutLinkRow(titleKey: String, value: String, url: URL, systemImage: String) -> some View {
+        Link(destination: url) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Label(L10n.tr(titleKey), systemImage: systemImage)
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    Text(value)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
+
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

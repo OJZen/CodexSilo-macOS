@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Niet-ondersteund versleutelingsalgoritme: %@";
 "error.transfer.decrypt_failed" = "Het archief kon niet worden ontsleuteld. Controleer het wachtwoord en probeer het opnieuw.";
 "error.transfer.invalid_payload_format" = "Inhoud van het archief kon niet worden gedecodeerd: %@";
+"settings.section.about" = "Over";
+"settings.about.project_url" = "Project";
+"settings.about.version_format" = "Versie %@";
+"settings.about.description" = "Volg mijn GitHub-profiel en het projectrepository voor releases en updates.";
+"settings.about.github_profile" = "GitHub-profiel";
+"settings.about.github_repository" = "Projectrepository";
 "settings.quit_confirmation_title" = "CodexSilo afsluiten?";
 "settings.quit_confirmation_message" = "Hiermee wordt de app gesloten en worden de achtergrondservices gestopt totdat je haar opnieuw opent.";

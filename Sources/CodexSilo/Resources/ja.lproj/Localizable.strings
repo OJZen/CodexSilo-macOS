@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "未対応の暗号アルゴリズムです: %@";
 "error.transfer.decrypt_failed" = "アーカイブの復号に失敗しました。パスワードを確認して再試行してください。";
 "error.transfer.invalid_payload_format" = "アーカイブ内容のデコードに失敗しました: %@";
+"settings.section.about" = "このアプリについて";
+"settings.about.project_url" = "プロジェクト";
+"settings.about.version_format" = "バージョン %@";
+"settings.about.description" = "GitHub プロフィールとプロジェクトのリポジトリからリリースや更新を確認できます。";
+"settings.about.github_profile" = "GitHub プロフィール";
+"settings.about.github_repository" = "プロジェクトリポジトリ";
 "settings.quit_confirmation_title" = "CodexSilo を終了しますか？";
 "settings.quit_confirmation_message" = "終了すると、再度開くまでアプリとバックグラウンドサービスが停止します。";

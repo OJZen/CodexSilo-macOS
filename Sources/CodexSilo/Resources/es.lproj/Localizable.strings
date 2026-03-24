@@ -299,5 +299,11 @@
 "error.transfer.unsupported_cipher_format" = "Algoritmo de cifrado no compatible: %@";
 "error.transfer.decrypt_failed" = "No se pudo descifrar el archivo. Comprueba la contrasena e intentalo de nuevo.";
 "error.transfer.invalid_payload_format" = "No se pudo decodificar el contenido del archivo: %@";
+"settings.section.about" = "Acerca de";
+"settings.about.project_url" = "Proyecto";
+"settings.about.version_format" = "Version %@";
+"settings.about.description" = "Sigue mi perfil de GitHub y el repositorio del proyecto para lanzamientos y actualizaciones.";
+"settings.about.github_profile" = "Perfil de GitHub";
+"settings.about.github_repository" = "Repositorio del proyecto";
 "settings.quit_confirmation_title" = "¿Salir de CodexSilo?";
 "settings.quit_confirmation_message" = "Esto cerrara la app y detendra sus servicios en segundo plano hasta que la abras de nuevo.";
