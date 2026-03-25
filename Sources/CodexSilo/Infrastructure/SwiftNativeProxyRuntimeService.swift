@@ -365,9 +365,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
         }
 
-        if statusCode == 200 {
-            try? authRepository.writeCurrentAuth(candidate.authJSON)
-        }
         return UpstreamResponse(statusCode: statusCode, body: responseBody)
     }
 

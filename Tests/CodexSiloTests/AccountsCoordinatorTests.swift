@@ -980,6 +980,82 @@ final class AccountsCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testTrayMenuConfigFileMonitorForcesUsageRefresh() async {
+        let now: Int64 = 1_763_216_000
+        let usageService = CountingUsageService(
+            result: UsageSnapshot(
+                fetchedAt: now,
+                planType: "pro",
+                fiveHour: UsageWindow(usedPercent: 25, windowSeconds: 18_000, resetAt: nil),
+                oneWeek: nil,
+                credits: nil
+            )
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Tray",
+                        email: "tray@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                settings: .defaultValue
+            )
+        )
+        let configMonitor = TestLocalFileMonitorService()
+        let model = TrayMenuModel(
+            accountsCoordinator: AccountsCoordinator(
+                storeRepository: storeRepository,
+                authRepository: StubAuthRepository(),
+                usageService: usageService,
+                chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+                dateProvider: FixedDateProvider(now: now)
+            ),
+            settingsCoordinator: SettingsCoordinator(
+                storeRepository: storeRepository,
+                launchAtStartupService: StubLaunchAtStartupService()
+            ),
+            localAuthFileMonitor: nil,
+            localConfigFileMonitor: configMonitor,
+            cloudSyncService: nil,
+            currentAccountSelectionSyncService: nil,
+            backgroundRefreshPolicy: .init(
+                initialRefreshDelay: .seconds(3_600),
+                cloudReconciliationInterval: .seconds(3_600),
+                usageRefreshInterval: .seconds(3_600),
+                refreshUsageOnRecurringTick: false,
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
+            ),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        defer { model.stopBackgroundRefresh() }
+
+        model.startBackgroundRefresh()
+        XCTAssertEqual(configMonitor.startCallCount, 1)
+        XCTAssertEqual(usageService.callCount, 0)
+
+        configMonitor.triggerChange()
+
+        for _ in 0..<20 where usageService.callCount == 0 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(usageService.callCount, 1)
+        XCTAssertEqual(model.accounts.first?.usage?.fiveHour?.usedPercent, 25)
+    }
+
+    @MainActor
     func testAccountsPageModelLocalMutationTriggersImmediateCloudSync() async {
         let now: Int64 = 1_763_216_000
         let storeRepository = InMemoryAccountsStoreRepository(
@@ -1236,6 +1312,353 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(savedStore.accounts.first?.teamAlias, "Studio")
         XCTAssertEqual(savedStore.currentSelection?.accountID, "account-2")
         XCTAssertEqual(authRepository.writtenAuth, expectedAuthJSON)
+    }
+
+    func testSwitchAccountBackfillsLiveAuthIntoCurrentStoredAccount() async throws {
+        let now: Int64 = 1_763_216_000
+        let staleCurrentAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("stale-access"),
+                "account_id": .string("account-1"),
+                "id_token": .string("stale-id"),
+                "refresh_token": .string("stale-refresh")
+            ])
+        ])
+        let liveCurrentAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("live-access"),
+                "account_id": .string("account-1"),
+                "id_token": .string("live-id"),
+                "refresh_token": .string("live-refresh")
+            ])
+        ])
+        let targetAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("target-access"),
+                "account_id": .string("account-2"),
+                "id_token": .string("target-id"),
+                "refresh_token": .string("target-refresh")
+            ])
+        ])
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Current",
+                        email: "current@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: staleCurrentAuth,
+                        addedAt: now - 100,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Target",
+                        email: "target@example.com",
+                        accountID: "account-2",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: targetAuth,
+                        addedAt: now - 100,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: CurrentAccountSelection(
+                    accountID: "account-1",
+                    selectedAt: 1,
+                    sourceDeviceID: "macos-local"
+                )
+            )
+        )
+        let authRepository = JSONEchoAuthRepository(
+            currentAccountID: "account-1",
+            currentAuth: liveCurrentAuth
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        try await coordinator.switchAccountAndApplySettings(id: "acct-2")
+        let savedStore = try storeRepository.loadStore()
+
+        XCTAssertEqual(savedStore.accounts.first(where: { $0.id == "acct-1" })?.authJSON, liveCurrentAuth)
+        XCTAssertEqual(savedStore.accounts.first(where: { $0.id == "acct-1" })?.updatedAt, now)
+        XCTAssertEqual(savedStore.currentSelection?.accountID, "account-2")
+        XCTAssertEqual(authRepository.writtenAuth, targetAuth)
+    }
+
+    func testSaveAccountConfigurationSetAsCurrentPreservesEditedTargetAuthWhenLiveAuthExists() async throws {
+        let now: Int64 = 1_763_216_000
+        let originalAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("old-access"),
+                "account_id": .string("account-1"),
+                "id_token": .string("old-id"),
+                "refresh_token": .string("old-refresh")
+            ])
+        ])
+        let liveCurrentAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("live-access"),
+                "account_id": .string("account-1"),
+                "id_token": .string("live-id"),
+                "refresh_token": .string("live-refresh")
+            ])
+        ])
+        let editedAuthString = """
+        {
+          "auth_mode": "chatgpt",
+          "tokens": {
+            "access_token": "new-access",
+            "account_id": "account-2",
+            "id_token": "new-id",
+            "refresh_token": "new-refresh"
+          }
+        }
+        """
+        let expectedAuthJSON = try JSONValue.authJSONObject(from: editedAuthString)
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "primary@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: "workspace-x",
+                        teamAlias: nil,
+                        authJSON: originalAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: CurrentAccountSelection(
+                    accountID: "account-1",
+                    selectedAt: 1,
+                    sourceDeviceID: "macos-local"
+                )
+            )
+        )
+        let authRepository = JSONEchoAuthRepository(
+            currentAccountID: "account-1",
+            currentAuth: liveCurrentAuth
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let saved = try await coordinator.saveAccountConfiguration(
+            AccountConfigurationDraft(
+                storedAccountID: "acct-1",
+                label: "Edited",
+                teamAlias: "Studio",
+                setAsCurrent: true,
+                authJSONString: editedAuthString
+            )
+        )
+        let savedStore = try storeRepository.loadStore()
+
+        XCTAssertEqual(saved.accountID, "account-2")
+        XCTAssertEqual(savedStore.accounts.first?.authJSON, expectedAuthJSON)
+        XCTAssertEqual(savedStore.currentSelection?.accountID, "account-2")
+        XCTAssertEqual(authRepository.writtenAuth, expectedAuthJSON)
+    }
+
+    func testSyncCurrentAuthSnapshotFromDiskBackfillsLiveAuthAndUpdatesSelection() async throws {
+        let now: Int64 = 1_763_216_000
+        let accountOneAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("account-1-access"),
+                "account_id": .string("account-1"),
+                "id_token": .string("account-1-id"),
+                "refresh_token": .string("account-1-refresh")
+            ])
+        ])
+        let staleAccountTwoAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("stale-account-2-access"),
+                "account_id": .string("account-2"),
+                "id_token": .string("stale-account-2-id"),
+                "refresh_token": .string("stale-account-2-refresh")
+            ])
+        ])
+        let liveAccountTwoAuth = JSONValue.object([
+            "auth_mode": .string("chatgpt"),
+            "tokens": .object([
+                "access_token": .string("live-account-2-access"),
+                "account_id": .string("account-2"),
+                "id_token": .string("live-account-2-id"),
+                "refresh_token": .string("live-account-2-refresh")
+            ])
+        ])
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "First",
+                        email: "first@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: accountOneAuth,
+                        addedAt: now - 100,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Second",
+                        email: "second@example.com",
+                        accountID: "account-2",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: staleAccountTwoAuth,
+                        addedAt: now - 100,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: CurrentAccountSelection(
+                    accountID: "account-1",
+                    selectedAt: 1,
+                    sourceDeviceID: "macos-local"
+                )
+            )
+        )
+        let authRepository = JSONEchoAuthRepository(
+            currentAccountID: "account-1",
+            currentAuth: liveAccountTwoAuth
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let accounts = try await coordinator.syncCurrentAuthSnapshotFromDisk()
+        let savedStore = try storeRepository.loadStore()
+
+        XCTAssertEqual(savedStore.accounts.first(where: { $0.id == "acct-2" })?.authJSON, liveAccountTwoAuth)
+        XCTAssertEqual(savedStore.currentSelection?.accountID, "account-2")
+        XCTAssertEqual(accounts.first(where: { $0.id == "acct-2" })?.isCurrent, true)
+        XCTAssertEqual(accounts.first(where: { $0.id == "acct-1" })?.isCurrent, false)
+    }
+
+    func testSyncCurrentAuthSnapshotFromDiskClearsCurrentSelectionWhenLiveAuthIsMissing() async throws {
+        let now: Int64 = 1_763_216_000
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "primary@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: JSONValue.object([
+                            "auth_mode": .string("chatgpt"),
+                            "tokens": .object([
+                                "access_token": .string("access"),
+                                "account_id": .string("account-1"),
+                                "id_token": .string("id"),
+                                "refresh_token": .string("refresh")
+                            ])
+                        ]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                currentSelection: CurrentAccountSelection(
+                    accountID: "account-1",
+                    selectedAt: 1,
+                    sourceDeviceID: "macos-local"
+                )
+            )
+        )
+        let authRepository = JSONEchoAuthRepository(currentAccountID: nil, currentAuth: nil)
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let accounts = try await coordinator.syncCurrentAuthSnapshotFromDisk()
+        let savedStore = try storeRepository.loadStore()
+
+        XCTAssertNil(savedStore.currentSelection)
+        XCTAssertEqual(accounts.first?.isCurrent, false)
     }
 
     func testSaveAccountConfigurationAllowsClearingEditedTeamName() async throws {
@@ -1721,6 +2144,26 @@ private final class StubAccountsCloudSyncService: AccountsCloudSyncServiceProtoc
     func ensurePushSubscriptionIfNeeded() async throws {}
 }
 
+private final class TestLocalFileMonitorService: LocalFileMonitorServiceProtocol, @unchecked Sendable {
+    private var onChange: (@Sendable () -> Void)?
+    private(set) var startCallCount = 0
+    private(set) var stopCallCount = 0
+
+    func start(onChange: @escaping @Sendable () -> Void) {
+        self.onChange = onChange
+        startCallCount += 1
+    }
+
+    func stop() {
+        onChange = nil
+        stopCallCount += 1
+    }
+
+    func triggerChange() {
+        onChange?()
+    }
+}
+
 private final class BlockingAccountsManualRefreshService: AccountsManualRefreshServiceProtocol, @unchecked Sendable {
     private let gate: ManualRefreshGate
     private let callCounter: ManualRefreshCallCounter
@@ -1870,19 +2313,22 @@ private final class RecordingAuthRepository: AuthRepository, @unchecked Sendable
 private final class JSONEchoAuthRepository: AuthRepository, @unchecked Sendable {
     private(set) var writtenAuth: JSONValue?
     private let currentAccountIDValue: String?
+    private var currentAuth: JSONValue?
 
-    init(currentAccountID: String?) {
+    init(currentAccountID: String?, currentAuth: JSONValue? = nil) {
         self.currentAccountIDValue = currentAccountID
+        self.currentAuth = currentAuth
     }
 
-    func readCurrentAuth() throws -> JSONValue { .null }
-    func readCurrentAuthOptional() throws -> JSONValue? { nil }
+    func readCurrentAuth() throws -> JSONValue { currentAuth ?? .null }
+    func readCurrentAuthOptional() throws -> JSONValue? { currentAuth }
     func readAuth(from url: URL) throws -> JSONValue {
         _ = url
         return .null
     }
     func writeCurrentAuth(_ auth: JSONValue) throws {
         writtenAuth = auth
+        currentAuth = auth
     }
     func removeCurrentAuth() throws {}
     func makeChatGPTAuth(from tokens: ChatGPTOAuthTokens) throws -> JSONValue {

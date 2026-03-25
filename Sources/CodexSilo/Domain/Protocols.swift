@@ -53,6 +53,11 @@ protocol ChatGPTOAuthLoginServiceProtocol: Sendable {
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens
 }
 
+protocol LocalFileMonitorServiceProtocol: AnyObject, Sendable {
+    func start(onChange: @escaping @Sendable () -> Void)
+    func stop()
+}
+
 protocol LaunchAtStartupServiceProtocol: Sendable {
     func setEnabled(_ enabled: Bool) throws
     func syncWithStoreValue(_ enabled: Bool) throws

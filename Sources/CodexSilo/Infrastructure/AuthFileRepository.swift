@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 final class AuthFileRepository: AuthRepository, @unchecked Sendable {
     private let paths: FileSystemPaths
@@ -479,6 +482,122 @@ final class AuthFileRepository: AuthRepository, @unchecked Sendable {
         return ids
     }
 
+}
+
+final class LocalFileMonitorService: LocalFileMonitorServiceProtocol, @unchecked Sendable {
+    private struct AuthFileFingerprint: Equatable {
+        let fileID: UInt64?
+        let size: UInt64
+        let modificationDate: Date
+
+        static let missing = AuthFileFingerprint(
+            fileID: nil,
+            size: 0,
+            modificationDate: .distantPast
+        )
+    }
+
+    private let fileManager: FileManager
+    private let monitoredFilePath: URL
+    private let monitoredDirectoryPath: URL
+    private let eventQueue: DispatchQueue
+    private let callbackQueue: DispatchQueue
+
+    private var directoryDescriptor: CInt = -1
+    private var directorySource: DispatchSourceFileSystemObject?
+    private var lastFingerprint = AuthFileFingerprint.missing
+    private var onChange: (@Sendable () -> Void)?
+
+    init(
+        monitoredFilePath: URL,
+        fileManager: FileManager = .default,
+        eventQueue: DispatchQueue = DispatchQueue(label: "codexsilo.auth-file-monitor"),
+        callbackQueue: DispatchQueue = .main
+    ) {
+        self.fileManager = fileManager
+        self.monitoredFilePath = monitoredFilePath
+        self.monitoredDirectoryPath = monitoredFilePath.deletingLastPathComponent()
+        self.eventQueue = eventQueue
+        self.callbackQueue = callbackQueue
+    }
+
+    func start(onChange: @escaping @Sendable () -> Void) {
+        self.onChange = onChange
+        guard directorySource == nil else { return }
+
+        try? fileManager.createDirectory(at: monitoredDirectoryPath, withIntermediateDirectories: true)
+        lastFingerprint = fileFingerprint(at: monitoredFilePath)
+
+        #if canImport(Darwin)
+        let descriptor = open(monitoredDirectoryPath.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+
+        directoryDescriptor = descriptor
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete, .extend, .attrib, .link, .revoke],
+            queue: eventQueue
+        )
+        source.setEventHandler { [weak self] in
+            self?.handleDirectoryEvent()
+        }
+        source.setCancelHandler { [weak self] in
+            guard let self else { return }
+            if self.directoryDescriptor >= 0 {
+                close(self.directoryDescriptor)
+                self.directoryDescriptor = -1
+            }
+        }
+        directorySource = source
+        source.resume()
+        #endif
+    }
+
+    func stop() {
+        onChange = nil
+        directorySource?.cancel()
+        directorySource = nil
+        #if canImport(Darwin)
+        if directoryDescriptor >= 0 {
+            close(directoryDescriptor)
+            directoryDescriptor = -1
+        }
+        #endif
+    }
+
+    deinit {
+        stop()
+    }
+
+    private func handleDirectoryEvent() {
+        let latestFingerprint = fileFingerprint(at: monitoredFilePath)
+        guard latestFingerprint != lastFingerprint else { return }
+
+        lastFingerprint = latestFingerprint
+        guard let onChange else { return }
+        callbackQueue.async {
+            onChange()
+        }
+    }
+
+    private func fileFingerprint(at path: URL) -> AuthFileFingerprint {
+        guard fileManager.fileExists(atPath: path.path) else {
+            return .missing
+        }
+
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path.path) else {
+            return .missing
+        }
+
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let fileID = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        let modificationDate = attributes[.modificationDate] as? Date ?? .distantPast
+        return AuthFileFingerprint(
+            fileID: fileID,
+            size: size,
+            modificationDate: modificationDate
+        )
+    }
 }
 
 private enum CodexCurrentAuthNormalizer {

@@ -84,6 +84,22 @@ actor AccountsCoordinator {
         return summaries
     }
 
+    func syncCurrentAuthSnapshotFromDisk() throws -> [AccountSummary] {
+        var store = try storeRepository.loadStore()
+        let didChange = syncCurrentLiveAuthProjectionFromDisk(in: &store)
+        if didChange {
+            try storeRepository.saveStore(store)
+        }
+
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
+        let summaries = store.accountSummaries(
+            currentAccountKey: currentAuthSelection.accountKey,
+            currentVariantKey: currentAuthSelection.variantKey
+        )
+        cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        return summaries
+    }
+
     func accountsOverviewCollapsed() throws -> Bool {
         try storeRepository.loadStore().accountsOverviewCollapsed
     }
@@ -263,22 +279,27 @@ actor AccountsCoordinator {
             store.accounts.append(account)
         }
 
+        let targetStoredAccountID: String
+        if let existingIndex {
+            targetStoredAccountID = store.accounts[existingIndex].id
+        } else {
+            targetStoredAccountID = store.accounts.last!.id
+        }
+
         if shouldSetAsCurrent {
-            store.currentSelection = CurrentAccountSelection(
-                accountID: extracted.accountID,
-                accountKey: extracted.accountKey,
-                variantKey: extracted.variantKey,
-                selectedAt: dateProvider.unixMillisecondsNow(),
-                sourceDeviceID: "macos-local"
+            backfillCurrentLiveAuthIfNeeded(
+                in: &store,
+                excludingStoredAccountIDs: [targetStoredAccountID]
             )
+            guard let targetAccount = store.accounts.first(where: { $0.id == targetStoredAccountID }) else {
+                throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
+            }
+            store.currentSelection = makeCurrentAccountSelection(for: targetAccount, sourceDeviceID: "macos-local")
         }
 
         try storeRepository.saveStore(store)
-        let savedAccount: StoredAccount
-        if let existingIndex {
-            savedAccount = store.accounts[existingIndex]
-        } else {
-            savedAccount = store.accounts.last!
+        guard let savedAccount = store.accounts.first(where: { $0.id == targetStoredAccountID }) else {
+            throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
         }
 
         if shouldSetAsCurrent {
@@ -767,16 +788,177 @@ actor AccountsCoordinator {
             throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
         }
 
-        store.currentSelection = CurrentAccountSelection(
+        _ = backfillCurrentLiveAuthIfNeeded(in: &store)
+        guard let targetAccount = store.accounts.first(where: { $0.id == account.id }) else {
+            throw AppError.invalidData(L10n.tr("error.accounts.account_not_found_for_switch"))
+        }
+
+        store.currentSelection = makeCurrentAccountSelection(for: targetAccount, sourceDeviceID: "macos-local")
+        try storeRepository.saveStore(store)
+
+        try authRepository.writeCurrentAuth(targetAccount.authJSON)
+    }
+
+    @discardableResult
+    private func backfillCurrentLiveAuthIfNeeded(
+        in store: inout AccountsStore,
+        excludingStoredAccountIDs: Set<String> = []
+    ) -> Bool {
+        guard let liveAuth = try? authRepository.readCurrentAuthOptional(),
+              let extracted = try? authRepository.extractAuth(from: liveAuth),
+              let currentIndex = liveAuthBackfillAccountIndex(
+                  in: store,
+                  extracted: extracted,
+                  excludingStoredAccountIDs: excludingStoredAccountIDs
+              ) else {
+            return false
+        }
+
+        var currentAccount = store.accounts[currentIndex]
+        let didChange = applyLiveAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
+        guard didChange else { return false }
+
+        currentAccount.updatedAt = dateProvider.unixSecondsNow()
+        store.accounts[currentIndex] = currentAccount
+        return true
+    }
+
+    private func syncCurrentLiveAuthProjectionFromDisk(in store: inout AccountsStore) -> Bool {
+        let liveAuth: JSONValue?
+        do {
+            liveAuth = try authRepository.readCurrentAuthOptional()
+        } catch {
+            return false
+        }
+
+        guard let liveAuth else {
+            if store.currentSelection != nil {
+                store.currentSelection = nil
+                return true
+            }
+            return false
+        }
+
+        guard let extracted = try? authRepository.extractAuth(from: liveAuth) else {
+            return false
+        }
+
+        guard let currentIndex = liveAuthBackfillAccountIndex(
+            in: store,
+            extracted: extracted,
+            excludingStoredAccountIDs: []
+        ) else {
+            if store.currentSelection != nil {
+                store.currentSelection = nil
+                return true
+            }
+            return false
+        }
+
+        var currentAccount = store.accounts[currentIndex]
+        var didChange = applyLiveAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
+        if didChange {
+            currentAccount.updatedAt = dateProvider.unixSecondsNow()
+            store.accounts[currentIndex] = currentAccount
+        }
+
+        let nextSelection = makeCurrentAccountSelection(
+            for: currentAccount,
+            sourceDeviceID: "macos-live-auth-watch"
+        )
+        if store.currentSelection?.resolvedAccountKey != nextSelection.resolvedAccountKey
+            || store.currentSelection?.resolvedVariantKey != nextSelection.resolvedVariantKey {
+            store.currentSelection = nextSelection
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func applyLiveAuthSnapshot(
+        _ liveAuth: JSONValue,
+        extracted: ExtractedAuth,
+        to account: inout StoredAccount
+    ) -> Bool {
+        var didChange = false
+
+        if account.authJSON != liveAuth {
+            account.authJSON = liveAuth
+            didChange = true
+        }
+
+        if account.accountID != extracted.accountID {
+            account.accountID = extracted.accountID
+            didChange = true
+        }
+
+        if let principalID = extracted.principalID,
+           account.principalID != principalID {
+            account.principalID = principalID
+            didChange = true
+        }
+
+        if let email = normalizedText(extracted.email),
+           account.email != email {
+            account.email = email
+            didChange = true
+        }
+
+        if let planType = normalizedText(extracted.planType),
+           account.planType != planType {
+            account.planType = planType
+            didChange = true
+        }
+
+        if let teamName = Self.normalizedTeamName(extracted.teamName),
+           account.teamName != teamName {
+            account.teamName = teamName
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func liveAuthBackfillAccountIndex(
+        in store: AccountsStore,
+        extracted: ExtractedAuth,
+        excludingStoredAccountIDs: Set<String>
+    ) -> Int? {
+        let candidateIndices = store.accounts.indices.filter { index in
+            !excludingStoredAccountIDs.contains(store.accounts[index].id)
+        }
+
+        let liveVariantKey = AccountIdentity.variantIdentifier(variantKey: extracted.variantKey)
+        if let liveVariantKey,
+           let exactVariantIndex = candidateIndices.first(where: { store.accounts[$0].variantKey == liveVariantKey }) {
+            return exactVariantIndex
+        }
+
+        let liveAccountKey = AccountIdentity.normalizedAccountID(extracted.accountKey)
+        if let liveAccountKey,
+           let exactAccountKeyIndex = candidateIndices.first(where: { store.accounts[$0].accountKey == liveAccountKey }) {
+            return exactAccountKeyIndex
+        }
+
+        let normalizedAccountID = AccountIdentity.normalizedAccountID(extracted.accountID) ?? extracted.accountID
+        return candidateIndices.first(where: {
+            let storedAccountID = AccountIdentity.normalizedAccountID(store.accounts[$0].accountID)
+                ?? store.accounts[$0].accountID
+            return storedAccountID == normalizedAccountID
+        })
+    }
+
+    private func makeCurrentAccountSelection(
+        for account: StoredAccount,
+        sourceDeviceID: String
+    ) -> CurrentAccountSelection {
+        CurrentAccountSelection(
             accountID: account.accountID,
             accountKey: account.accountKey,
             variantKey: account.variantKey,
             selectedAt: dateProvider.unixMillisecondsNow(),
-            sourceDeviceID: "macos-local"
+            sourceDeviceID: sourceDeviceID
         )
-        try storeRepository.saveStore(store)
-
-        try authRepository.writeCurrentAuth(account.authJSON)
     }
 
     private func normalizeTeamAlias(_ alias: String?) -> String? {

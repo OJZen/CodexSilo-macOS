@@ -46,6 +46,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
 
     private let accountsCoordinator: AccountsCoordinator
     private let settingsCoordinator: SettingsCoordinator
+    private let localAuthFileMonitor: LocalFileMonitorServiceProtocol?
+    private let localConfigFileMonitor: LocalFileMonitorServiceProtocol?
     private let cloudSyncService: AccountsCloudSyncServiceProtocol?
     private let currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol?
     private let backgroundRefreshPolicy: BackgroundRefreshPolicy
@@ -70,6 +72,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
     init(
         accountsCoordinator: AccountsCoordinator,
         settingsCoordinator: SettingsCoordinator,
+        localAuthFileMonitor: LocalFileMonitorServiceProtocol? = nil,
+        localConfigFileMonitor: LocalFileMonitorServiceProtocol? = nil,
         cloudSyncService: AccountsCloudSyncServiceProtocol?,
         currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol?,
         backgroundRefreshPolicy: BackgroundRefreshPolicy,
@@ -79,6 +83,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
     ) {
         self.accountsCoordinator = accountsCoordinator
         self.settingsCoordinator = settingsCoordinator
+        self.localAuthFileMonitor = localAuthFileMonitor
+        self.localConfigFileMonitor = localConfigFileMonitor
         self.cloudSyncService = cloudSyncService
         self.currentAccountSelectionSyncService = currentAccountSelectionSyncService
         self.backgroundRefreshPolicy = backgroundRefreshPolicy
@@ -92,6 +98,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
 
     func startBackgroundRefresh() {
         guard cloudReconciliationTask == nil else { return }
+        configureLocalAuthFileMonitoringIfNeeded()
+        configureLocalConfigFileMonitoringIfNeeded()
         configureAccountsSnapshotPushHandlingIfNeeded()
         configureCurrentSelectionPushHandlingIfNeeded()
         cloudReconciliationTask = Task { [weak self] in
@@ -136,6 +144,8 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         workspaceMetadataRefreshTask = nil
         accountsSnapshotPushCancellable = nil
         currentSelectionPushCancellable = nil
+        localAuthFileMonitor?.stop()
+        localConfigFileMonitor?.stop()
     }
 
     deinit {
@@ -477,6 +487,39 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 #endif
             }
         }
+    }
+
+    private func configureLocalAuthFileMonitoringIfNeeded() {
+        localAuthFileMonitor?.start { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.handleLocalAuthFileChange()
+            }
+        }
+    }
+
+    private func handleLocalAuthFileChange() async {
+        do {
+            let latestAccounts = try await accountsCoordinator.syncCurrentAuthSnapshotFromDisk()
+            accounts = latestAccounts
+        } catch {
+            #if DEBUG
+            // print("Local auth file sync skipped:", error.localizedDescription)
+            #endif
+        }
+    }
+
+    private func configureLocalConfigFileMonitoringIfNeeded() {
+        localConfigFileMonitor?.start { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.handleLocalConfigFileChange()
+            }
+        }
+    }
+
+    private func handleLocalConfigFileChange() async {
+        await refreshNow(forceUsageRefresh: true)
     }
 
     private func configureCurrentSelectionPushHandlingIfNeeded() {

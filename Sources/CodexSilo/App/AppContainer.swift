@@ -12,6 +12,8 @@ struct AppContainer {
             let paths = try FileSystemPaths.live()
             let storeRepository = StoreFileRepository(paths: paths)
             let authRepository = AuthFileRepository(paths: paths)
+            let localAuthFileMonitor = LocalFileMonitorService(monitoredFilePath: paths.codexAuthPath)
+            let localConfigFileMonitor = LocalFileMonitorService(monitoredFilePath: paths.codexConfigPath)
             let initialStore = try storeRepository.loadStore()
             let usageService = DefaultUsageService(configPath: paths.codexConfigPath)
             let workspaceMetadataService = DefaultWorkspaceMetadataService(configPath: paths.codexConfigPath)
@@ -43,6 +45,8 @@ struct AppContainer {
             let trayModel = TrayMenuModel(
                 accountsCoordinator: accountsCoordinator,
                 settingsCoordinator: settingsCoordinator,
+                localAuthFileMonitor: localAuthFileMonitor,
+                localConfigFileMonitor: localConfigFileMonitor,
                 cloudSyncService: nil,
                 currentAccountSelectionSyncService: nil,
                 backgroundRefreshPolicy: .forPlatform(PlatformCapabilities.currentPlatform),
