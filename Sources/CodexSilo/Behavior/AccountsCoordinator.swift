@@ -738,7 +738,7 @@ actor AccountsCoordinator {
             return shouldCheckWithoutStoredName
         }
 
-        if allowUnknownPlanWhenForced && normalizedPlan.isEmpty {
+        if allowUnknownPlanWhenForced && forceRemoteCheck {
             return shouldCheckWithoutStoredName
         }
 

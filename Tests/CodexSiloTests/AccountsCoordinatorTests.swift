@@ -296,6 +296,35 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(savedStore.accounts.first?.teamName, "remote-space")
     }
 
+    func testAddAccountViaLoginPrefersRemoteWorkspaceMetadataAfterUsageBackfillsUnexpectedPlan() async throws {
+        let now: Int64 = 1_763_216_000
+        let storeRepository = InMemoryAccountsStoreRepository(store: AccountsStore())
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: LoginRemoteLookupAuthRepository(),
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "workspace",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            workspaceMetadataService: StubWorkspaceMetadataService(
+                metadata: [WorkspaceMetadata(accountID: "account-1", workspaceName: "remote-space", structure: "workspace")]
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let imported = try await coordinator.addAccountViaLogin(customLabel: nil)
+        let savedStore = try storeRepository.loadStore()
+
+        XCTAssertEqual(imported.teamName, "remote-space")
+        XCTAssertEqual(savedStore.accounts.first?.teamName, "remote-space")
+    }
+
     func testForcedRefreshBypassesUsageThrottle() async throws {
         let now: Int64 = 1_763_216_000
         let existingUsage = UsageSnapshot(
