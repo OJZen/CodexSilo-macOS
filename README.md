@@ -8,6 +8,10 @@
   一个面向 macOS 的原生 SwiftUI 工具，用来管理 Codex / ChatGPT 账号、查看配额、智能切换账号，并提供本地 OpenAI 兼容 API 代理。
 </p>
 
+<p align="center">
+  <img src="./docs/imgs/main-window.png" alt="CodexSilo Main Window" width="1200" />
+</p>
+
 ## 功能
 
 - 导入当前 `~/.codex/auth.json`
@@ -21,7 +25,7 @@
   - `POST /v1/responses`
   - `POST /v1/chat/completions`
 - 支持复制 `Base URL` 与 `API Key`
-- 支持菜单栏常驻、开机启动、自动刷新、切换后拉起 Codex、自动启动代理
+- 支持菜单栏常驻、开机启动、自动刷新、自动启动代理
 - 支持密码保护的账号数据导入 / 导出，导出格式为 `*.codexsiloexport`
 
 ## 系统要求
