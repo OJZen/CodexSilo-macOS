@@ -104,6 +104,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         configureCurrentSelectionPushHandlingIfNeeded()
         cloudReconciliationTask = Task { [weak self] in
             guard let self else { return }
+            await self.refreshNow(forceUsageRefresh: false)
             try? await Task.sleep(for: self.backgroundRefreshPolicy.initialRefreshDelay)
             await self.reconcileCloudStateNow()
             while !Task.isCancelled {
@@ -174,6 +175,26 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         do {
             let latestAccounts = try await executeCloudReconciliation(failOnCloudSyncError: false)
             accounts = latestAccounts
+            notice = nil
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    func switchAccount(id: String) async {
+        guard let currentAccount = accounts.first(where: { $0.id == id }) else { return }
+        guard !currentAccount.isCurrent else { return }
+
+        beginAccountsRefreshActivity()
+        defer { endAccountsRefreshActivity() }
+
+        do {
+            try await accountsCoordinator.switchAccountAndApplySettings(id: id)
+            let latestAccounts = try await accountsCoordinator.listAccounts()
+            accounts = latestAccounts
+            if let selectedAccount = latestAccounts.first(where: { $0.id == id }) {
+                await syncCurrentAccountSelection(accountID: selectedAccount.variantKey)
+            }
             notice = nil
         } catch {
             notice = error.localizedDescription
@@ -585,6 +606,19 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
             notice = nil
         } catch {
             notice = error.localizedDescription
+        }
+    }
+
+    private func syncCurrentAccountSelection(accountID: String) async {
+        guard let currentAccountSelectionSyncService else { return }
+
+        do {
+            try await currentAccountSelectionSyncService.recordLocalSelection(accountID: accountID)
+            try await currentAccountSelectionSyncService.pushLocalSelectionIfNeeded()
+        } catch {
+            #if DEBUG
+            // print("Tray selection sync skipped:", error.localizedDescription)
+            #endif
         }
     }
 

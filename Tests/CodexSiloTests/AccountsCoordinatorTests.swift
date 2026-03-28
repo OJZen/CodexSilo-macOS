@@ -1095,6 +1095,116 @@ final class AccountsCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testTrayMenuSwitchAccountUpdatesCurrentSelection() async throws {
+        let now: Int64 = 1_763_216_000
+        let firstAuth = JSONValue.object([
+            "tokens": .object([
+                "access_token": .string("access-1"),
+                "account_id": .string("account-1")
+            ])
+        ])
+        let secondAuth = JSONValue.object([
+            "tokens": .object([
+                "access_token": .string("access-2"),
+                "account_id": .string("account-2")
+            ])
+        ])
+        let authRepository = JSONEchoAuthRepository(
+            currentAccountID: "account-1",
+            currentAuth: firstAuth
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "primary@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: firstAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: UsageSnapshot(
+                            fetchedAt: now,
+                            planType: "pro",
+                            fiveHour: UsageWindow(usedPercent: 20, windowSeconds: 18_000, resetAt: nil),
+                            oneWeek: UsageWindow(usedPercent: 40, windowSeconds: 604_800, resetAt: nil),
+                            credits: nil
+                        ),
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Secondary",
+                        email: "secondary@example.com",
+                        accountID: "account-2",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: secondAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: UsageSnapshot(
+                            fetchedAt: now,
+                            planType: "pro",
+                            fiveHour: UsageWindow(usedPercent: 10, windowSeconds: 18_000, resetAt: nil),
+                            oneWeek: UsageWindow(usedPercent: 25, windowSeconds: 604_800, resetAt: nil),
+                            credits: nil
+                        ),
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let accountsCoordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = TrayMenuModel(
+            accountsCoordinator: accountsCoordinator,
+            settingsCoordinator: SettingsCoordinator(
+                storeRepository: storeRepository,
+                launchAtStartupService: StubLaunchAtStartupService()
+            ),
+            cloudSyncService: nil,
+            currentAccountSelectionSyncService: nil,
+            backgroundRefreshPolicy: .init(
+                initialRefreshDelay: .seconds(1),
+                cloudReconciliationInterval: .seconds(1),
+                usageRefreshInterval: .seconds(30),
+                refreshUsageOnRecurringTick: false,
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
+            ),
+            dateProvider: FixedDateProvider(now: now),
+            initialAccounts: try storeRepository.loadStore().accountSummaries(
+                currentAccountKey: authRepository.currentAuthAccountKey(),
+                currentVariantKey: authRepository.currentAuthVariantKey()
+            )
+        )
+
+        await model.switchAccount(id: "acct-2")
+
+        XCTAssertEqual(authRepository.writtenAuth?["tokens"]?["account_id"]?.stringValue, "account-2")
+        XCTAssertEqual(model.accounts.first(where: { $0.id == "acct-2" })?.isCurrent, true)
+        XCTAssertEqual(model.accounts.first(where: { $0.id == "acct-1" })?.isCurrent, false)
+    }
+
+    @MainActor
     func testTrayMenuConfigFileMonitorForcesUsageRefresh() async {
         let now: Int64 = 1_763_216_000
         let usageService = CountingUsageService(
@@ -1158,15 +1268,15 @@ final class AccountsCoordinatorTests: XCTestCase {
 
         model.startBackgroundRefresh()
         XCTAssertEqual(configMonitor.startCallCount, 1)
-        XCTAssertEqual(usageService.callCount, 0)
+        let baselineUsageCallCount = usageService.callCount
 
         configMonitor.triggerChange()
 
-        for _ in 0..<20 where usageService.callCount == 0 {
+        for _ in 0..<20 where usageService.callCount == baselineUsageCallCount {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
-        XCTAssertEqual(usageService.callCount, 1)
+        XCTAssertGreaterThanOrEqual(usageService.callCount, baselineUsageCallCount + 1)
         XCTAssertEqual(model.accounts.first?.usage?.fiveHour?.usedPercent, 25)
     }
 
@@ -1224,6 +1334,57 @@ final class AccountsCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(syncSpy.syncCallCount, 1)
         XCTAssertEqual(syncSpy.acceptedSnapshots.last?.first?.teamAlias, "Renamed")
+    }
+
+    @MainActor
+    func testAccountsPageModelLoadPublishesInitialAccountsSnapshot() async {
+        let now: Int64 = 1_763_216_000
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "primary@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object([:]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: StubAuthRepository(),
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService()
+        )
+        let syncSpy = SpyAccountsLocalMutationSyncService()
+        let model = AccountsPageModel(
+            coordinator: coordinator,
+            onLocalAccountsChanged: { accounts in
+                syncSpy.acceptLocalAccountsSnapshot(accounts)
+            }
+        )
+
+        await model.load()
+
+        XCTAssertEqual(syncSpy.acceptedSnapshots.count, 1)
+        XCTAssertEqual(syncSpy.acceptedSnapshots.last?.map(\.id), ["acct-1"])
     }
 
     func testAccountConfigurationDraftUsesPrettyPrintedAuthJSON() async throws {

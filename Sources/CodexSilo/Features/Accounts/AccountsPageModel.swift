@@ -72,6 +72,7 @@ final class AccountsPageModel: ObservableObject {
             let accounts = try await coordinator.listAccounts()
             prefersCollapsedOverview = try await coordinator.accountsOverviewCollapsed()
             applyAccounts(accounts)
+            publishLocalAccounts(accounts)
             hasLoaded = true
         } catch {
             state = .error(message: error.localizedDescription)

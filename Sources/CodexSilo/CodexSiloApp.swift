@@ -33,18 +33,17 @@ struct CodexSiloApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Button("打开主页面") {
-                mainWindowController.showWindow()
-            }
-
-            Divider()
-
-            Button("退出", role: .destructive) {
-                NSApp.terminate(nil)
-            }
+            TrayMenuContentView(
+                trayModel: trayModel,
+                onOpenMainWindow: {
+                    mainWindowController.showWindow()
+                }
+            )
+            .id(trayMenuContentIdentity)
         } label: {
             menuBarIcon
         }
+        .menuBarExtraStyle(.window)
     }
 
     private var menuBarIcon: Image {
@@ -52,6 +51,15 @@ struct CodexSiloApp: App {
             return Image(nsImage: icon)
         }
         return Image(systemName: "curlybraces")
+    }
+
+    private var trayMenuContentIdentity: String {
+        trayModel.accounts.map { account in
+            let fiveHour = Int((account.usage?.fiveHour?.usedPercent ?? -1).rounded())
+            let oneWeek = Int((account.usage?.oneWeek?.usedPercent ?? -1).rounded())
+            return "\(account.id)|\(account.isCurrent)|\(account.updatedAt)|\(fiveHour)|\(oneWeek)"
+        }
+        .joined(separator: ";")
     }
 
     private func makeMenuBarTemplateImage() -> NSImage? {
@@ -90,6 +98,265 @@ struct CodexSiloApp: App {
         canvas.unlockFocus()
         canvas.isTemplate = true
         return canvas
+    }
+}
+
+private struct TrayMenuContentView: View {
+    @ObservedObject var trayModel: TrayMenuModel
+    let onOpenMainWindow: () -> Void
+
+    private var displayedAccounts: [AccountSummary] {
+        let current = trayModel.accounts.filter(\.isCurrent)
+        let others = trayModel.accounts.filter { !$0.isCurrent }
+        return current + others
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            trayActionButton(title: "显示主页面", systemImage: "macwindow", action: onOpenMainWindow)
+
+            Divider()
+
+            if trayModel.accounts.isEmpty {
+                Text(L10n.tr("tray.no_accounts"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(displayedAccounts) { account in
+                        TrayMenuAccountButton(
+                            account: account,
+                            onSwitch: {
+                                Task {
+                                    await trayModel.switchAccount(id: account.id)
+                                }
+                            }
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            trayActionButton(
+                title: L10n.tr("common.quit"),
+                systemImage: "power",
+                role: .destructive,
+                action: { NSApp.terminate(nil) }
+            )
+        }
+        .padding(10)
+        .frame(width: 312)
+    }
+
+    private func trayActionButton(
+        title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .medium))
+
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Spacer()
+            }
+            .foregroundStyle(role == .destructive ? Color.red : Color.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(role == .destructive ? Color.red.opacity(0.08) : Color.primary.opacity(0.05))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct TrayMenuAccountButton: View {
+    let account: AccountSummary
+    let onSwitch: () -> Void
+
+    var body: some View {
+        Button {
+            guard !account.isCurrent else { return }
+            onSwitch()
+        } label: {
+            content
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(account.isCurrent ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(account.isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.14), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if account.isCurrent {
+            currentAccountContent
+        } else {
+            compactAccountContent
+        }
+    }
+
+    private var currentAccountContent: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(account.label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 6)
+
+                Text("✅")
+                    .font(.system(size: 12))
+            }
+
+            if let email = trimmedEmail {
+                Text(email)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                usageProgressRow(
+                    title: L10n.tr("accounts.window.five_hour"),
+                    remainingText: remainingText(for: account.usage?.fiveHour),
+                    progress: remainingFraction(for: account.usage?.fiveHour)
+                )
+                usageProgressRow(
+                    title: L10n.tr("accounts.window.one_week"),
+                    remainingText: remainingText(for: account.usage?.oneWeek),
+                    progress: remainingFraction(for: account.usage?.oneWeek)
+                )
+            }
+            .padding(.top, 1)
+        }
+    }
+
+    private var compactAccountContent: some View {
+        HStack(spacing: 8) {
+            Text(account.label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            usageBadge(
+                title: L10n.tr("accounts.window.five_hour"),
+                value: remainingText(for: account.usage?.fiveHour),
+                progress: remainingFraction(for: account.usage?.fiveHour)
+            )
+
+            usageBadge(
+                title: L10n.tr("accounts.window.one_week"),
+                value: remainingText(for: account.usage?.oneWeek),
+                progress: remainingFraction(for: account.usage?.oneWeek)
+            )
+        }
+    }
+
+    private var trimmedEmail: String? {
+        guard let email = account.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty else {
+            return nil
+        }
+        return email
+    }
+
+    private func usageBadge(title: String, value: String, progress: Double?) -> some View {
+        let color = statusColor(for: progress)
+
+        return HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+            Text(value)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(color.opacity(progress == nil ? 0.08 : 0.14))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(color.opacity(progress == nil ? 0.12 : 0.22), lineWidth: 1)
+        )
+    }
+
+    private func usageProgressRow(
+        title: String,
+        remainingText: String,
+        progress: Double?
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, alignment: .leading)
+
+            ProgressView(value: progress ?? 0)
+                .progressViewStyle(.linear)
+                .tint(statusColor(for: progress))
+                .scaleEffect(x: 1, y: 0.7, anchor: .center)
+
+            Text(remainingText)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .frame(width: 34, alignment: .trailing)
+        }
+    }
+
+    private func remainingText(for window: UsageWindow?) -> String {
+        guard let remaining = remainingPercent(for: window) else { return "--" }
+        return "\(Int(remaining.rounded()))%"
+    }
+
+    private func remainingPercent(for window: UsageWindow?) -> Double? {
+        guard let window else { return nil }
+        return max(0, 100 - window.usedPercent)
+    }
+
+    private func remainingFraction(for window: UsageWindow?) -> Double? {
+        guard let remaining = remainingPercent(for: window) else { return nil }
+        return remaining / 100
+    }
+
+    private func statusColor(for progress: Double?) -> Color {
+        guard let progress else { return .secondary }
+        switch progress {
+        case ..<0.2:
+            return .red
+        case ..<0.5:
+            return .orange
+        default:
+            return .green
+        }
     }
 }
 
