@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class AccountsPageModel: ObservableObject {
     private enum WindowPresentationRefreshPolicy {
-        static let minimumInterval: TimeInterval = 25
+        static let minimumInterval: TimeInterval = 60
     }
 
     private let coordinator: AccountsCoordinator
@@ -12,6 +12,7 @@ final class AccountsPageModel: ObservableObject {
     private let localAccountsMutationSyncService: AccountsLocalMutationSyncServiceProtocol?
     private let currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol?
     private let onLocalAccountsChanged: (([AccountSummary]) -> Void)?
+    private let nowProvider: () -> Date
     private let noticeScheduler = NoticeAutoDismissScheduler()
     private var prefersCollapsedOverview = false
     private var hasLoaded = false
@@ -41,6 +42,7 @@ final class AccountsPageModel: ObservableObject {
         localAccountsMutationSyncService: AccountsLocalMutationSyncServiceProtocol? = nil,
         currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol? = nil,
         onLocalAccountsChanged: (([AccountSummary]) -> Void)? = nil,
+        nowProvider: @escaping () -> Date = Date.init,
         initialAccounts: [AccountSummary]? = nil,
         initialOverviewCollapsed: Bool = false
     ) {
@@ -49,6 +51,7 @@ final class AccountsPageModel: ObservableObject {
         self.localAccountsMutationSyncService = localAccountsMutationSyncService
         self.currentAccountSelectionSyncService = currentAccountSelectionSyncService
         self.onLocalAccountsChanged = onLocalAccountsChanged
+        self.nowProvider = nowProvider
         self.prefersCollapsedOverview = initialOverviewCollapsed
         self.state = initialAccounts.map { initialAccounts in
             Self.makeViewState(accounts: initialAccounts, sortMode: .remainingUsage)
@@ -79,7 +82,7 @@ final class AccountsPageModel: ObservableObject {
     func refreshAccountsOnWindowPresentation() async {
         guard !isManualRefreshing else { return }
 
-        let now = Date()
+        let now = nowProvider()
         if let lastWindowPresentationRefreshAt,
            now.timeIntervalSince(lastWindowPresentationRefreshAt) < WindowPresentationRefreshPolicy.minimumInterval {
             return

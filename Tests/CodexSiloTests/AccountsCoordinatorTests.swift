@@ -854,6 +854,92 @@ final class AccountsCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountsPageModelWindowPresentationRefreshUsesSixtySecondMinimumInterval() async {
+        let now: Int64 = 1_763_216_000
+        let usageService = CountingUsageService(
+            result: UsageSnapshot(
+                fetchedAt: now,
+                planType: "pro",
+                fiveHour: nil,
+                oneWeek: nil,
+                credits: nil
+            )
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Window Refresh",
+                        email: "window@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let clock = TestNowProvider(current: Date(timeIntervalSince1970: TimeInterval(now)))
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: StubAuthRepository(),
+            usageService: usageService,
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = AccountsPageModel(
+            coordinator: coordinator,
+            nowProvider: { clock.now() }
+        )
+
+        await model.refreshAccountsOnWindowPresentation()
+        clock.current = Date(timeIntervalSince1970: TimeInterval(now + 59))
+        await model.refreshAccountsOnWindowPresentation()
+        clock.current = Date(timeIntervalSince1970: TimeInterval(now + 60))
+        await model.refreshAccountsOnWindowPresentation()
+
+        XCTAssertEqual(usageService.callCount, 2)
+    }
+
+    @MainActor
+    func testAccountsPageModelManualRefreshBypassesWindowPresentationThrottle() async {
+        let now: Int64 = 1_763_216_000
+        let manualRefreshService = CountingAccountsManualRefreshService()
+        let clock = TestNowProvider(current: Date(timeIntervalSince1970: TimeInterval(now)))
+        let coordinator = AccountsCoordinator(
+            storeRepository: InMemoryAccountsStoreRepository(store: AccountsStore()),
+            authRepository: StubAuthRepository(),
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "pro",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = AccountsPageModel(
+            coordinator: coordinator,
+            manualRefreshService: manualRefreshService,
+            nowProvider: { clock.now() }
+        )
+
+        await model.refreshAccountsOnWindowPresentation()
+        await model.refreshUsage()
+
+        XCTAssertEqual(manualRefreshService.callCount, 2)
+    }
+
+    @MainActor
     func testTrayMenuRefreshNowReusesPulledAccountsWithoutSecondListPass() async {
         let now: Int64 = 1_763_216_000
         let authRepository = CountingMultiAccountAuthRepository(
@@ -2105,6 +2191,18 @@ private final class StubAccountsManualRefreshService: AccountsManualRefreshServi
     }
 }
 
+private final class CountingAccountsManualRefreshService: AccountsManualRefreshServiceProtocol, @unchecked Sendable {
+    private(set) var callCount = 0
+
+    func performManualRefresh(
+        onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
+    ) async throws -> [AccountSummary] {
+        _ = onPartialUpdate
+        callCount += 1
+        return []
+    }
+}
+
 @MainActor
 private final class SpyAccountsLocalMutationSyncService: AccountsLocalMutationSyncServiceProtocol {
     private(set) var acceptedSnapshots: [[AccountSummary]] = []
@@ -2139,6 +2237,18 @@ private actor ManualRefreshCallCounter {
 
     func increment() {
         value += 1
+    }
+}
+
+private final class TestNowProvider: @unchecked Sendable {
+    var current: Date
+
+    init(current: Date) {
+        self.current = current
+    }
+
+    func now() -> Date {
+        current
     }
 }
 
