@@ -6,6 +6,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         case general
     }
 
+    enum UpstreamEndpointKind: Equatable {
+        case responses
+        case responsesCompact
+    }
+
     private static let stableClientModels = [
         "gpt-5",
         "gpt-5-4",
@@ -30,6 +35,56 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private static let clientVisibleModels = stableClientModels + compatibilityCodexModels
     private static let defaultCodexClientVersion = "0.101.0"
     private static let defaultCodexUserAgent = "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464"
+    private static let excludedForwardRequestHeaders: Set<String> = [
+        "accept",
+        "authorization",
+        "connection",
+        "content-length",
+        "content-type",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "user-agent",
+        "version",
+        "session_id",
+        "session-id",
+        "x-api-key"
+    ]
+    private static let excludedForwardResponseHeaders: Set<String> = [
+        "connection",
+        "content-encoding",
+        "content-length",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade"
+    ]
+    private static let responsesPaths: Set<String> = [
+        "/responses",
+        "/v1/responses",
+        "/v1/v1/responses",
+        "/codex/v1/responses"
+    ]
+    private static let responsesCompactPaths: Set<String> = [
+        "/responses/compact",
+        "/v1/responses/compact",
+        "/v1/v1/responses/compact",
+        "/codex/v1/responses/compact"
+    ]
+    private static let chatCompletionsPaths: Set<String> = [
+        "/chat/completions",
+        "/v1/chat/completions",
+        "/v1/v1/chat/completions",
+        "/codex/v1/chat/completions"
+    ]
 
     private let paths: FileSystemPaths
     private let storeRepository: AccountsStoreRepository
@@ -134,7 +189,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
     private func handle(request: HTTPRequest) async -> HTTPResponse {
         if request.path == "/health" && request.method == "GET" {
-            return HTTPResponse.json(statusCode: 200, object: ["ok": true])
+            return HTTPResponse.json(statusCode: 200, object: [
+                "ok": true,
+                "status": "ok",
+                "timestamp": Int(dateProvider.unixSecondsNow())
+            ])
         }
 
         guard isAuthorized(request.headers) else {
@@ -153,12 +212,16 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return HTTPResponse.json(statusCode: 200, object: ["object": "list", "data": list])
         }
 
-        if request.path == "/v1/responses" && request.method == "POST" {
-            return await handleResponsesRequest(body: request.body, downstreamHeaders: request.headers)
+        if Self.responsesPaths.contains(request.path) && request.method == "POST" {
+            return await handleResponsesRequest(request)
         }
 
-        if request.path == "/v1/chat/completions" && request.method == "POST" {
-            return await handleChatCompletionsRequest(body: request.body, downstreamHeaders: request.headers)
+        if Self.responsesCompactPaths.contains(request.path) && request.method == "POST" {
+            return await handleResponsesCompactRequest(request)
+        }
+
+        if Self.chatCompletionsPaths.contains(request.path) && request.method == "POST" {
+            return await handleChatCompletionsRequest(request)
         }
 
         return jsonError(
@@ -167,10 +230,10 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         )
     }
 
-    private func handleResponsesRequest(body: Data, downstreamHeaders: [String: String]) async -> HTTPResponse {
+    private func handleResponsesRequest(_ request: HTTPRequest) async -> HTTPResponse {
         let object: [String: Any]
         do {
-            object = try parseJSONObject(from: body)
+            object = try parseJSONObject(from: request.body)
         } catch {
             return jsonError(statusCode: 400, message: error.localizedDescription)
         }
@@ -187,32 +250,31 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
         let upstream: UpstreamResponse
         do {
-            upstream = try await sendOverCandidates(payload: payload, downstreamHeaders: downstreamHeaders)
+            upstream = try await sendOverCandidates(payload: payload, request: request)
         } catch {
             return jsonError(statusCode: 502, message: error.localizedDescription)
         }
 
+        guard (200..<300).contains(upstream.statusCode) else {
+            return downstreamResponse(from: upstream)
+        }
+
         if downstreamStream {
-            return HTTPResponse(
-                statusCode: 200,
-                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
-                body: upstream.body
-            )
+            return downstreamResponse(from: upstream, defaultContentType: "text/event-stream; charset=utf-8")
         }
 
         do {
             let completed = try extractCompletedResponse(fromSSE: upstream.body)
-            let rewritten = rewriteResponseModelFields(completed)
-            return HTTPResponse.json(statusCode: 200, object: rewritten)
+            return jsonResponse(statusCode: 200, object: completed, baseHeaders: upstream.headers)
         } catch {
             return jsonError(statusCode: 502, message: error.localizedDescription)
         }
     }
 
-    private func handleChatCompletionsRequest(body: Data, downstreamHeaders: [String: String]) async -> HTTPResponse {
+    private func handleChatCompletionsRequest(_ request: HTTPRequest) async -> HTTPResponse {
         let object: [String: Any]
         do {
-            object = try parseJSONObject(from: body)
+            object = try parseJSONObject(from: request.body)
         } catch {
             return jsonError(statusCode: 400, message: error.localizedDescription)
         }
@@ -232,18 +294,23 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
         let upstream: UpstreamResponse
         do {
-            upstream = try await sendOverCandidates(payload: payload, downstreamHeaders: downstreamHeaders)
+            upstream = try await sendOverCandidates(payload: payload, request: request)
         } catch {
             return jsonError(statusCode: 502, message: error.localizedDescription)
+        }
+
+        guard (200..<300).contains(upstream.statusCode) else {
+            return downstreamResponse(from: upstream)
         }
 
         if downstreamStream {
             do {
                 let sse = try convertResponsesSSEToChatCompletionsSSE(upstream.body, fallbackModel: requestedModel)
-                return HTTPResponse(
+                return response(
                     statusCode: 200,
-                    headers: ["Content-Type": "text/event-stream; charset=utf-8"],
-                    body: sse
+                    body: sse,
+                    baseHeaders: upstream.headers,
+                    defaultContentType: "text/event-stream; charset=utf-8"
                 )
             } catch {
                 return jsonError(statusCode: 502, message: error.localizedDescription)
@@ -253,13 +320,46 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         do {
             let completed = try extractCompletedResponse(fromSSE: upstream.body)
             let completion = convertCompletedResponseToChatCompletion(completed, fallbackModel: requestedModel)
-            return HTTPResponse.json(statusCode: 200, object: completion)
+            return jsonResponse(statusCode: 200, object: completion, baseHeaders: upstream.headers)
         } catch {
             return jsonError(statusCode: 502, message: error.localizedDescription)
         }
     }
 
-    private func sendOverCandidates(payload: [String: Any], downstreamHeaders: [String: String]) async throws -> UpstreamResponse {
+    private func handleResponsesCompactRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        let object: [String: Any]
+        do {
+            object = try parseJSONObject(from: request.body)
+        } catch {
+            return jsonError(statusCode: 400, message: error.localizedDescription)
+        }
+
+        let payload: [String: Any]
+        do {
+            payload = try normalizeCompactResponsesRequest(object)
+        } catch {
+            return jsonError(statusCode: 400, message: error.localizedDescription)
+        }
+
+        let upstream: UpstreamResponse
+        do {
+            upstream = try await sendOverCandidates(
+                payload: payload,
+                request: request,
+                endpointKind: .responsesCompact
+            )
+        } catch {
+            return jsonError(statusCode: 502, message: error.localizedDescription)
+        }
+
+        return downstreamResponse(from: upstream)
+    }
+
+    private func sendOverCandidates(
+        payload: [String: Any],
+        request: HTTPRequest,
+        endpointKind: UpstreamEndpointKind = .responses
+    ) async throws -> UpstreamResponse {
         let candidates = try loadCandidates()
         guard !candidates.isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
@@ -267,9 +367,15 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
         var failureDetails: [String] = []
         var retryFailures: [RetryFailureInfo] = []
+        var lastRetriableResponse: UpstreamResponse?
         for candidate in candidates {
             do {
-                let response = try await sendUpstream(payload: payload, candidate: candidate, downstreamHeaders: downstreamHeaders)
+                let response = try await sendUpstream(
+                    payload: payload,
+                    candidate: candidate,
+                    request: request,
+                    endpointKind: endpointKind
+                )
                 if response.statusCode >= 200 && response.statusCode < 300 {
                     activeAccountID = candidate.accountID
                     activeAccountLabel = candidate.label
@@ -283,10 +389,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
                 if let retryFailure = classifyRetryFailure(statusCode: response.statusCode, bodyText: bodyText) {
                     retryFailures.append(retryFailure)
+                    lastRetriableResponse = response
                     continue
                 } else {
                     lastError = detail
-                    break
+                    return response
                 }
             } catch {
                 let detail = "\(candidate.label): \(error.localizedDescription)"
@@ -294,13 +401,13 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
         }
 
-        if !retryFailures.isEmpty && retryFailures.count == candidates.count {
+        if let lastRetriableResponse {
             let summary = buildRetriableFailureSummary(retryFailures)
             let message = summary.isEmpty
                 ? L10n.tr("error.proxy_runtime.all_accounts_unavailable")
                 : L10n.tr("error.proxy_runtime.all_accounts_unavailable_with_summary_format", summary)
             lastError = message
-            throw AppError.network(message)
+            return lastRetriableResponse
         }
 
         let preview = failureDetails.prefix(2).joined(separator: " | ")
@@ -311,37 +418,67 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         throw AppError.network(message)
     }
 
-    private func sendUpstream(payload: [String: Any], candidate: ProxyCandidate, downstreamHeaders: [String: String]) async throws -> UpstreamResponse {
+    private func sendUpstream(
+        payload: [String: Any],
+        candidate: ProxyCandidate,
+        request: HTTPRequest,
+        endpointKind: UpstreamEndpointKind
+    ) async throws -> UpstreamResponse {
         guard JSONSerialization.isValidJSONObject(payload) else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.invalid_upstream_payload"))
         }
 
-        let firstResponse = try await performUpstreamRequest(payload: payload, candidate: candidate, downstreamHeaders: downstreamHeaders)
+        let firstResponse = try await performUpstreamRequest(
+            payload: payload,
+            candidate: candidate,
+            request: request,
+            endpointKind: endpointKind
+        )
         let firstBodyText = String(data: firstResponse.body, encoding: .utf8) ?? ""
         if Self.shouldRetryWithAutoReasoningSummary(statusCode: firstResponse.statusCode, bodyText: firstBodyText),
            let adjustedPayload = Self.payloadWithAutoReasoningSummaryIfNeeded(payload: payload) {
-            return try await performUpstreamRequest(payload: adjustedPayload, candidate: candidate, downstreamHeaders: downstreamHeaders)
+            return try await performUpstreamRequest(
+                payload: adjustedPayload,
+                candidate: candidate,
+                request: request,
+                endpointKind: endpointKind
+            )
         }
 
         return firstResponse
     }
 
-    private func performUpstreamRequest(payload: [String: Any], candidate: ProxyCandidate, downstreamHeaders: [String: String]) async throws -> UpstreamResponse {
+    private func performUpstreamRequest(
+        payload: [String: Any],
+        candidate: ProxyCandidate,
+        request downstreamRequest: HTTPRequest,
+        endpointKind: UpstreamEndpointKind
+    ) async throws -> UpstreamResponse {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let upstreamModel = (payload["model"] as? String) ?? "gpt-5.4"
-        let version = Self.normalizedForwardHeader(downstreamHeaders["version"]) ?? Self.defaultCodexClientVersion
-        let sessionID = Self.normalizedForwardHeader(downstreamHeaders["session_id"])
-            ?? Self.normalizedForwardHeader(downstreamHeaders["session-id"])
+        let version = Self.normalizedForwardHeader(downstreamRequest.headers["version"]) ?? Self.defaultCodexClientVersion
+        let sessionID = Self.normalizedForwardHeader(downstreamRequest.headers["session_id"])
+            ?? Self.normalizedForwardHeader(downstreamRequest.headers["session-id"])
             ?? UUID().uuidString
-        let userAgent = Self.normalizedForwardHeader(downstreamHeaders["user-agent"]) ?? Self.defaultCodexUserAgent
-        var request = URLRequest(url: responsesEndpoint(forUpstreamModel: upstreamModel))
+        let userAgent = Self.normalizedForwardHeader(downstreamRequest.headers["user-agent"]) ?? Self.defaultCodexUserAgent
+        var request = URLRequest(
+            url: upstreamEndpoint(
+                forUpstreamModel: upstreamModel,
+                endpointKind: endpointKind,
+                queryItems: downstreamRequest.queryItems
+            )
+        )
         request.httpMethod = "POST"
         request.timeoutInterval = 180
         request.httpBody = body
+        applyForwardHeaders(downstreamRequest.headers, to: &request)
         request.setValue("Bearer \(candidate.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(candidate.accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(
+            endpointKind == .responses ? "text/event-stream" : "application/json",
+            forHTTPHeaderField: "Accept"
+        )
         request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
         request.setValue(version, forHTTPHeaderField: "Version")
         request.setValue(sessionID, forHTTPHeaderField: "Session_id")
@@ -349,7 +486,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         request.setValue("Keep-Alive", forHTTPHeaderField: "Connection")
 
         let (responseBytes, response) = try await URLSession.shared.bytes(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 500
         var responseBody = Data()
         responseBody.reserveCapacity(64 * 1024)
 
@@ -365,7 +503,69 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
         }
 
-        return UpstreamResponse(statusCode: statusCode, body: responseBody)
+        return UpstreamResponse(
+            statusCode: statusCode,
+            headers: Self.responseHeaders(from: httpResponse),
+            body: responseBody
+        )
+    }
+
+    private func applyForwardHeaders(_ downstreamHeaders: [String: String], to request: inout URLRequest) {
+        for (key, value) in downstreamHeaders {
+            guard !Self.excludedForwardRequestHeaders.contains(key),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+    }
+
+    private func downstreamResponse(from upstream: UpstreamResponse, defaultContentType: String? = nil) -> HTTPResponse {
+        response(
+            statusCode: upstream.statusCode,
+            body: upstream.body,
+            baseHeaders: upstream.headers,
+            defaultContentType: defaultContentType
+        )
+    }
+
+    private func response(
+        statusCode: Int,
+        body: Data,
+        baseHeaders: [String: String],
+        defaultContentType: String? = nil
+    ) -> HTTPResponse {
+        var headers = baseHeaders.filter { key, _ in
+            !Self.excludedForwardResponseHeaders.contains(key.lowercased())
+        }
+        if let defaultContentType,
+           headers["content-type"] == nil,
+           headers["Content-Type"] == nil {
+            headers["Content-Type"] = defaultContentType
+        }
+        return HTTPResponse(statusCode: statusCode, headers: headers, body: body)
+    }
+
+    private func jsonResponse(statusCode: Int, object: Any, baseHeaders: [String: String]) -> HTTPResponse {
+        let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
+        let sanitizedBaseHeaders = baseHeaders.filter { key, _ in
+            key.lowercased() != "content-type"
+        }
+        return response(
+            statusCode: statusCode,
+            body: data,
+            baseHeaders: sanitizedBaseHeaders.merging(["Content-Type": "application/json; charset=utf-8"]) { _, new in new }
+        )
+    }
+
+    private static func responseHeaders(from response: HTTPURLResponse?) -> [String: String] {
+        guard let response else { return [:] }
+        var headers: [String: String] = [:]
+        for (rawKey, rawValue) in response.allHeaderFields {
+            guard let key = rawKey as? String else { continue }
+            headers[key.lowercased()] = String(describing: rawValue)
+        }
+        return headers
     }
 
     static func shouldRetryWithAutoReasoningSummary(statusCode: Int, bodyText: String) -> Bool {
@@ -503,25 +703,35 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         let downstreamStream = (request["stream"] as? Bool) ?? false
 
         payload["model"] = model
-        payload["stream"] = true
-        payload["store"] = false
-        if payload["instructions"] == nil {
-            payload["instructions"] = ""
-        }
-        if payload["parallel_tool_calls"] == nil {
-            payload["parallel_tool_calls"] = true
+        if !downstreamStream {
+            payload["stream"] = true
         }
 
         let currentReasoning = payload["reasoning"] as? [String: Any] ?? [:]
-        payload["reasoning"] = Self.normalizedReasoningForUpstream(currentReasoning, upstreamModel: model)
-
-        var include = payload["include"] as? [Any] ?? []
-        if !include.contains(where: { ($0 as? String) == "reasoning.encrypted_content" }) {
-            include.append("reasoning.encrypted_content")
+        if !currentReasoning.isEmpty {
+            payload["reasoning"] = Self.normalizedReasoningForUpstream(currentReasoning, upstreamModel: model)
         }
-        payload["include"] = include
 
         return (payload, downstreamStream)
+    }
+
+    private func normalizeCompactResponsesRequest(_ request: [String: Any]) throws -> [String: Any] {
+        guard let rawModel = request["model"] as? String, !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AppError.invalidData(L10n.tr("error.proxy_runtime.missing_model"))
+        }
+
+        var payload = request
+        payload["model"] = try mapClientModelToUpstream(rawModel)
+
+        let currentReasoning = payload["reasoning"] as? [String: Any] ?? [:]
+        if !currentReasoning.isEmpty {
+            payload["reasoning"] = Self.normalizedReasoningForUpstream(
+                currentReasoning,
+                upstreamModel: payload["model"] as? String
+            )
+        }
+
+        return payload
     }
 
     private func convertChatRequestToResponses(_ request: [String: Any]) throws -> (payload: [String: Any], downstreamStream: Bool) {
@@ -539,6 +749,17 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         let downstreamStream = (request["stream"] as? Bool) ?? false
+        var payload = request
+        payload.removeValue(forKey: "messages")
+        payload.removeValue(forKey: "functions")
+        payload.removeValue(forKey: "function_call")
+        payload.removeValue(forKey: "reasoning_effort")
+        if let requestedChoices = request["n"] {
+            guard let number = requestedChoices as? NSNumber, number.intValue == 1 else {
+                throw AppError.invalidData("Only n=1 is supported for chat completions.")
+            }
+            payload.removeValue(forKey: "n")
+        }
 
         var input: [[String: Any]] = []
         for raw in messages {
@@ -597,25 +818,30 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         let reasoningEffort = (request["reasoning_effort"] as? String)
-            ?? (((request["reasoning"] as? [String: Any])?["effort"] as? String) ?? "medium")
-        let reasoningSummary = ((request["reasoning"] as? [String: Any])?["summary"] as? String) ?? "auto"
-        let reasoning = Self.normalizedReasoningForUpstream([
-            "effort": reasoningEffort,
-            "summary": reasoningSummary
-        ], upstreamModel: model)
+            ?? ((payload["reasoning"] as? [String: Any])?["effort"] as? String)
+        var reasoning = payload["reasoning"] as? [String: Any] ?? [:]
+        if let reasoningEffort {
+            reasoning["effort"] = reasoningEffort
+        }
+        if !reasoning.isEmpty {
+            payload["reasoning"] = Self.normalizedReasoningForUpstream(reasoning, upstreamModel: model)
+        }
 
-        var payload: [String: Any] = [
-            "model": model,
-            "stream": true,
-            "store": false,
-            "instructions": "",
-            "parallel_tool_calls": (request["parallel_tool_calls"] as? Bool) ?? true,
-            "include": ["reasoning.encrypted_content"],
-            "reasoning": reasoning,
-            "input": input
-        ]
+        if let maxCompletionTokens = payload.removeValue(forKey: "max_completion_tokens"),
+           payload["max_output_tokens"] == nil {
+            payload["max_output_tokens"] = maxCompletionTokens
+        }
+        if let maxTokens = payload.removeValue(forKey: "max_tokens"),
+           payload["max_output_tokens"] == nil {
+            payload["max_output_tokens"] = maxTokens
+        }
 
-        if let tools = request["tools"] as? [Any] {
+        payload["model"] = model
+        payload["stream"] = true
+        payload["input"] = input
+
+        let rawTools = (request["tools"] as? [Any]) ?? legacyFunctionsAsTools(request["functions"])
+        if let tools = rawTools {
             var convertedTools: [[String: Any]] = []
             for rawTool in tools {
                 guard let tool = rawTool as? [String: Any] else { continue }
@@ -636,11 +862,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 payload["tools"] = convertedTools
             }
         }
-        if let toolChoice = request["tool_choice"] {
+        if let toolChoice = request["tool_choice"] ?? legacyFunctionCallAsToolChoice(request["function_call"]) {
             payload["tool_choice"] = toolChoice
         }
 
-        if let responseFormat = request["response_format"] {
+        if let responseFormat = payload.removeValue(forKey: "response_format") {
             mapResponseFormat(into: &payload, responseFormat: responseFormat)
         }
         if let text = request["text"] {
@@ -648,6 +874,40 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         return (payload, downstreamStream)
+    }
+
+    private func legacyFunctionsAsTools(_ value: Any?) -> [Any]? {
+        guard let functions = value as? [Any] else { return nil }
+        return functions.compactMap { raw in
+            guard let function = raw as? [String: Any] else { return nil }
+            return [
+                "type": "function",
+                "function": function
+            ]
+        }
+    }
+
+    private func legacyFunctionCallAsToolChoice(_ value: Any?) -> Any? {
+        guard let value else { return nil }
+        if let text = value as? String {
+            switch text {
+            case "auto", "none", "required":
+                return text
+            default:
+                return [
+                    "type": "function",
+                    "function": ["name": text]
+                ]
+            }
+        }
+        if let object = value as? [String: Any],
+           let name = object["name"] {
+            return [
+                "type": "function",
+                "function": ["name": name]
+            ]
+        }
+        return nil
     }
 
     private func convertMessageContentToCodexParts(role: String, content: Any?) -> [[String: Any]] {
@@ -1203,36 +1463,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
     }
 
-    private func rewriteResponseModelFields(_ value: [String: Any]) -> [String: Any] {
-        var output: Any = value
-        recurseNormalizeModels(&output)
-        return output as? [String: Any] ?? value
-    }
-
-    private func recurseNormalizeModels(_ any: inout Any) {
-        if var dict = any as? [String: Any] {
-            for key in dict.keys {
-                if key == "model", let model = dict[key] as? String {
-                    dict[key] = normalizeModelForClient(model)
-                } else if var child = dict[key] {
-                    recurseNormalizeModels(&child)
-                    dict[key] = child
-                }
-            }
-            any = dict
-            return
-        }
-
-        if var array = any as? [Any] {
-            for index in array.indices {
-                var child = array[index]
-                recurseNormalizeModels(&child)
-                array[index] = child
-            }
-            any = array
-        }
-    }
-
     private func mapClientModelToUpstream(_ model: String) throws -> String {
         let normalized = normalizedClientModelToken(model)
         if normalized == "gpt-5-4" || normalized == "gpt-5.4" || normalized == "gpt5.4" {
@@ -1416,10 +1646,25 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         ])
     }
 
-    private func responsesEndpoint(forUpstreamModel model: String) -> URL {
+    private func upstreamEndpoint(
+        forUpstreamModel model: String,
+        endpointKind: UpstreamEndpointKind,
+        queryItems: [URLQueryItem]
+    ) -> URL {
         let routeFamily = Self.resolveUpstreamRouteFamily(forUpstreamModel: model)
         let base = resolveUpstreamBaseURL(routeFamily: routeFamily)
-        return URL(string: "\(base)/responses")!
+        let path: String
+        switch endpointKind {
+        case .responses:
+            path = "\(base)/responses"
+        case .responsesCompact:
+            path = "\(base)/responses/compact"
+        }
+        guard var components = URLComponents(string: path) else {
+            return URL(string: path)!
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components.url ?? URL(string: path)!
     }
 
     private func resolveUpstreamBaseURL(routeFamily: UpstreamRouteFamily) -> String {
@@ -1615,6 +1860,7 @@ private struct ProxyCandidate {
 
 private struct UpstreamResponse {
     var statusCode: Int
+    var headers: [String: String]
     var body: Data
 }
 
