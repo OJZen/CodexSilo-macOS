@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "开机启动";
 "settings.auto_refresh_accounts" = "自动刷新账户信息";
 "settings.auto_start_api_proxy" = "自动启动 API 代理";
+"settings.allow_lan_proxy_access" = "允许局域网访问 API 代理";
+"settings.allow_lan_proxy_access_hint" = "关闭时代理只绑定到本机。开启后，同一局域网内的设备可以通过这台 Mac 的局域网 IP 和相同端口访问代理。";
 "settings.section.deployment" = "部署模式";
 "settings.deployment_mode" = "模式";
 "settings.deployment_mode.local_device" = "本机执行";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "远程服务器 JSON";
 "settings.save_remote_servers" = "保存远程服务器";
 "settings.notice.updated" = "设置已更新";
+"settings.notice.proxy_lan_access_updated" = "局域网代理访问设置已更新。如果代理已经在运行，请重启后生效。";
 "settings.notice.restart_target_updated" = "重启目标已更新";
 "settings.notice.remote_servers_saved" = "远程服务器配置已保存";
 "settings.error.remote_servers_json_utf8" = "远程服务器 JSON 不是合法 UTF-8";
@@ -131,10 +134,13 @@
 "proxy.port_line_format" = "端口：%@";
 "proxy.available_accounts_format" = "可用账号：%@";
 "proxy.action.refresh_status" = "刷新状态";
+"proxy.action.test_live_request" = "测试真实请求";
 "proxy.action.start_api_proxy" = "启动 API 代理";
 "proxy.action.stop_api_proxy" = "停止 API 代理";
 "proxy.start_on_launch" = "启动时自动运行";
 "proxy.detail.base_url" = "基础 URL";
+"proxy.detail.local_base_url" = "本机基础 URL";
+"proxy.detail.lan_base_urls" = "局域网基础 URL";
 "proxy.detail.api_key" = "API 密钥";
 "proxy.detail.active_routed_account" = "当前路由账号";
 "proxy.detail.last_error" = "最近错误";
@@ -160,6 +166,9 @@
 "proxy.notice.api_proxy_stopped" = "API 代理已停止";
 "proxy.notice.api_key_refreshed" = "API 密钥已刷新";
 "proxy.notice.auto_start_updated" = "默认启动设置已更新";
+"proxy.notice.test_request_succeeded_format" = "通过 %@ 的真实测试成功：%@";
+"proxy.notice.test_request_requires_running_proxy" = "请先启动 API 代理，再执行真实测试。";
+"proxy.notice.test_request_missing_credentials" = "代理缺少基础 URL 或 API 密钥。请重新启动后再试。";
 "proxy.notice.server_draft_added" = "已添加服务器草稿，请到 Settings 的 JSON 配置补全字段";
 "proxy.notice.remote_deploying_format" = "远程部署已开始：%@";
 "proxy.notice.remote_deploy_done_format" = "远程部署完成：%@";

@@ -9,6 +9,7 @@ final class SettingsPageModel: ObservableObject {
     private let noticeScheduler = NoticeAutoDismissScheduler()
 
     @Published var settings: AppSettings = .defaultValue
+    @Published var liveTestLogs: [ProxyLiveTestLogEntry] = []
     @Published var notice: NoticeMessage? {
         didSet {
             noticeScheduler.schedule(notice) { [weak self] in
@@ -16,6 +17,7 @@ final class SettingsPageModel: ObservableObject {
             }
         }
     }
+    @Published var logsBusy = false
     private var hasLoaded = false
 
     init(
@@ -37,6 +39,7 @@ final class SettingsPageModel: ObservableObject {
     func load() async {
         do {
             settings = try await settingsCoordinator.currentSettings()
+            liveTestLogs = try await settingsCoordinator.proxyLiveTestLogs()
             onSettingsUpdated(settings)
             hasLoaded = true
         } catch {
@@ -60,6 +63,15 @@ final class SettingsPageModel: ObservableObject {
         Task { await update(AppSettingsPatch(autoStartApiProxy: value)) }
     }
 
+    func setAllowLanProxyAccess(_ value: Bool) {
+        Task {
+            await update(
+                AppSettingsPatch(allowLanProxyAccess: value),
+                successText: L10n.tr("settings.notice.proxy_lan_access_updated")
+            )
+        }
+    }
+
     func setLocale(_ value: String) {
         Task { await update(AppSettingsPatch(locale: value)) }
     }
@@ -81,6 +93,7 @@ final class SettingsPageModel: ObservableObject {
         do {
             let importedStore = try await settingsCoordinator.importAccountData(from: url, password: password)
             settings = importedStore.settings
+            liveTestLogs = importedStore.proxyLiveTestLogs
             onSettingsUpdated(settings)
             hasLoaded = true
             await onStoreImported(importedStore)
@@ -91,6 +104,26 @@ final class SettingsPageModel: ObservableObject {
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    func refreshLiveTestLogs() async {
+        do {
+            liveTestLogs = try await settingsCoordinator.proxyLiveTestLogs()
+        } catch {
+            notice = NoticeMessage(style: .error, text: error.localizedDescription)
+        }
+    }
+
+    func clearProxyLiveTestLogs() async {
+        logsBusy = true
+        defer { logsBusy = false }
+
+        do {
+            try await settingsCoordinator.clearProxyLiveTestLogs()
+            liveTestLogs = []
+        } catch {
+            notice = NoticeMessage(style: .error, text: error.localizedDescription)
         }
     }
 

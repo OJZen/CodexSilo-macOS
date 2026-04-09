@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "Start bij inloggen";
 "settings.auto_refresh_accounts" = "Accounts automatisch verversen";
 "settings.auto_start_api_proxy" = "API Proxy automatisch starten";
+"settings.allow_lan_proxy_access" = "LAN-toegang tot API Proxy toestaan";
+"settings.allow_lan_proxy_access_hint" = "Uit houdt de proxy alleen op deze Mac. Aan laat apparaten op je lokale netwerk de LAN-IP van deze Mac en dezelfde poort gebruiken.";
 "settings.section.deployment" = "Uitrol";
 "settings.deployment_mode" = "Modus";
 "settings.deployment_mode.local_device" = "Lokaal apparaat";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "Remote servers JSON";
 "settings.save_remote_servers" = "Remote servers opslaan";
 "settings.notice.updated" = "Instellingen bijgewerkt";
+"settings.notice.proxy_lan_access_updated" = "LAN-toegang voor de proxy is bijgewerkt. Herstart de API Proxy als die al actief is.";
 "settings.notice.restart_target_updated" = "Herstartdoel bijgewerkt";
 "settings.notice.remote_servers_saved" = "Configuratie van remote servers opgeslagen";
 "settings.error.remote_servers_json_utf8" = "Remote servers JSON is geen geldige UTF-8";
@@ -129,6 +132,7 @@
 "proxy.port_line_format" = "Poort: %@";
 "proxy.available_accounts_format" = "Beschikbare accounts: %@";
 "proxy.action.refresh_status" = "Status vernieuwen";
+"proxy.action.test_live_request" = "Echte aanvraag testen";
 "proxy.action.start_api_proxy" = "API Proxy starten";
 "proxy.action.stop_api_proxy" = "API Proxy stoppen";
 "proxy.start_on_launch" = "Starten bij openen";
@@ -158,6 +162,9 @@
 "proxy.notice.api_proxy_stopped" = "API Proxy gestopt";
 "proxy.notice.api_key_refreshed" = "API-sleutel vernieuwd";
 "proxy.notice.auto_start_updated" = "Autostart-instelling bijgewerkt";
+"proxy.notice.test_request_succeeded_format" = "Live test via %@ geslaagd: %@";
+"proxy.notice.test_request_requires_running_proxy" = "Start eerst de API Proxy voordat je een live test uitvoert.";
+"proxy.notice.test_request_missing_credentials" = "De proxy mist een basis-URL of API-sleutel. Start hem opnieuw en probeer het opnieuw.";
 "proxy.notice.server_draft_added" = "Serverconcept toegevoegd. Vul de velden aan in de instellingen-JSON.";
 "proxy.notice.remote_deploying_format" = "Remote deploy gestart: %@";
 "proxy.notice.remote_deploy_done_format" = "Remote deploy voltooid: %@";

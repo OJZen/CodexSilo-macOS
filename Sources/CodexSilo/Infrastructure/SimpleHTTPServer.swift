@@ -34,17 +34,26 @@ struct HTTPResponse {
 }
 
 final class SimpleHTTPServer: @unchecked Sendable {
+    enum BindScope: Sendable, Equatable {
+        case loopbackOnly
+        case allInterfaces
+    }
+
     typealias RequestHandler = @Sendable (HTTPRequest) async -> HTTPResponse
 
     private let listener: NWListener
     private let queue: DispatchQueue
     private let handler: RequestHandler
 
-    init(port: UInt16, handler: @escaping RequestHandler) throws {
+    init(
+        port: UInt16,
+        bindScope: BindScope = .loopbackOnly,
+        handler: @escaping RequestHandler
+    ) throws {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             throw AppError.invalidData(L10n.tr("error.http_server.invalid_port_format", String(port)))
         }
-        self.listener = try NWListener(using: .tcp, on: nwPort)
+        self.listener = try Self.makeListener(port: nwPort, bindScope: bindScope)
         self.queue = DispatchQueue(label: "codex.tools.swift.proxy.listener", qos: .userInitiated)
         self.handler = handler
     }
@@ -58,6 +67,23 @@ final class SimpleHTTPServer: @unchecked Sendable {
 
     func stop() {
         listener.cancel()
+    }
+
+    private static func makeListener(
+        port: NWEndpoint.Port,
+        bindScope: BindScope
+    ) throws -> NWListener {
+        switch bindScope {
+        case .allInterfaces:
+            return try NWListener(using: .tcp, on: port)
+        case .loopbackOnly:
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: port
+            )
+            return try NWListener(using: parameters)
+        }
     }
 
     private func handle(connection: NWConnection) {

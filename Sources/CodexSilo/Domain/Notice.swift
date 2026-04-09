@@ -9,8 +9,13 @@ enum NoticeStyle {
 struct NoticeMessage: Equatable {
     var style: NoticeStyle
     var text: String
+    var autoDismissDelayOverride: Duration? = nil
 
     var autoDismissDelay: Duration {
+        if let autoDismissDelayOverride {
+            return autoDismissDelayOverride
+        }
+
         switch style {
         case .success, .info:
             return .seconds(3)

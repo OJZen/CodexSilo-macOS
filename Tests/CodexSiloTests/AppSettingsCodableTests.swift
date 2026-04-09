@@ -24,6 +24,7 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded.autoRefreshAccounts, true)
         XCTAssertEqual(decoded.autoSmartSwitch, false)
         XCTAssertEqual(decoded.autoStartApiProxy, true)
+        XCTAssertEqual(decoded.allowLanProxyAccess, false)
         XCTAssertEqual(decoded.locale, AppLocale.english.identifier)
     }
 
@@ -52,5 +53,38 @@ final class AppSettingsCodableTests: XCTestCase {
         XCTAssertFalse(json.contains("restartEditorsOnSwitch"))
         XCTAssertFalse(json.contains("restartEditorTargets"))
         XCTAssertFalse(json.contains("remoteServers"))
+    }
+
+    func testDecodeIgnoresRemovedCodexPassthroughModeFlag() throws {
+        let json = """
+        {
+          "launchAtStartup": false,
+          "autoRefreshAccounts": true,
+          "autoSmartSwitch": false,
+          "autoStartApiProxy": true,
+          "codexPassthroughMode": true,
+          "locale": "en"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.autoStartApiProxy, true)
+        XCTAssertEqual(decoded.allowLanProxyAccess, false)
+    }
+
+    func testDecodePreservesLanProxyAccessSetting() throws {
+        let json = """
+        {
+          "launchAtStartup": false,
+          "autoRefreshAccounts": true,
+          "autoSmartSwitch": false,
+          "autoStartApiProxy": true,
+          "allowLanProxyAccess": true,
+          "locale": "en"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.allowLanProxyAccess, true)
     }
 }

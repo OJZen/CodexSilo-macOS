@@ -289,6 +289,130 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertEqual(started.apiKey, legacyKey)
     }
 
+    func testStartBindsProxyToLoopbackByDefault() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(store: makeProxyStore()),
+            authRepository: MockAuthRepository(),
+            lanBaseURLResolver: { port in
+                ["http://192.168.0.20:\(port)/v1"]
+            }
+        )
+
+        let port = Int.random(in: 21000...29000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        XCTAssertEqual(started.baseURL, "http://127.0.0.1:\(port)/v1")
+        XCTAssertTrue(started.lanBaseURLs.isEmpty)
+
+        let listenerDescription = try listeningSocketDescription(for: port)
+        XCTAssertTrue(listenerDescription.contains("127.0.0.1:\(port)"), listenerDescription)
+    }
+
+    func testStartBindsProxyToAllInterfacesWhenLanAccessEnabled() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(
+                store: makeProxyStore(
+                    settings: AppSettings(
+                        launchAtStartup: false,
+                        autoRefreshAccounts: true,
+                        autoSmartSwitch: false,
+                        autoStartApiProxy: false,
+                        allowLanProxyAccess: true,
+                        locale: AppLocale.automatic.identifier
+                    )
+                )
+            ),
+            authRepository: MockAuthRepository(),
+            lanBaseURLResolver: { port in
+                ["http://192.168.0.20:\(port)/v1"]
+            }
+        )
+
+        let port = Int.random(in: 21000...29000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        XCTAssertEqual(started.baseURL, "http://127.0.0.1:\(port)/v1")
+        XCTAssertEqual(started.lanBaseURLs, ["http://192.168.0.20:\(port)/v1"])
+
+        let listenerDescription = try listeningSocketDescription(for: port)
+        XCTAssertTrue(listenerDescription.contains("*:\(port)"), listenerDescription)
+    }
+
+    func testStatusOnlyPublishesLanBaseURLsAfterRestartingIntoLanMode() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let storeRepository = MutableStoreRepository(store: makeProxyStore())
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepository,
+            authRepository: MockAuthRepository(),
+            lanBaseURLResolver: { port in
+                ["http://192.168.0.20:\(port)/v1"]
+            }
+        )
+
+        let port = Int.random(in: 21000...29000)
+        _ = try await runtime.start(preferredPort: port)
+
+        storeRepository.store.settings.allowLanProxyAccess = true
+        let statusBeforeRestart = await runtime.status()
+        XCTAssertTrue(statusBeforeRestart.lanBaseURLs.isEmpty)
+
+        _ = await runtime.stop()
+        _ = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let statusAfterRestart = await runtime.status()
+        XCTAssertEqual(statusAfterRestart.lanBaseURLs, ["http://192.168.0.20:\(port)/v1"])
+    }
+
     func testResponsesRejectsMissingModelOnAllAliases() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -795,6 +919,9 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             "temperature": 0.2,
             "top_p": 0.9,
             "max_completion_tokens": 256,
+            "stream_options": [
+                "include_usage": true
+            ],
             "metadata": [
                 "source": "test-suite"
             ],
@@ -837,16 +964,135 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
         XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
         XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
         XCTAssertEqual(upstreamBody["temperature"] as? Double, 0.2)
         XCTAssertEqual(upstreamBody["top_p"] as? Double, 0.9)
-        XCTAssertEqual(upstreamBody["max_output_tokens"] as? Int, 256)
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
         XCTAssertEqual(upstreamBody["instructions"] as? String, "Be concise.")
         XCTAssertEqual((upstreamBody["metadata"] as? [String: Any])?["source"] as? String, "test-suite")
         XCTAssertEqual(upstreamBody["service_tier"] as? String, "auto")
+        XCTAssertNil(upstreamBody["stream_options"])
         XCTAssertNil(upstreamBody["messages"])
         let input = try XCTUnwrap(upstreamBody["input"] as? [[String: Any]])
         XCTAssertEqual(input.count, 1)
         XCTAssertEqual(input.first?["role"] as? String, "user")
+    }
+
+    func testChatCompletionsNormalizesOpenCodeStyleAliasesForCodexUpstream() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 47001...52000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            let sse = """
+            data: {"type":"response.completed","response":{"id":"resp_aliases","created_at":123,"model":"gpt-5.4","output":[{"type":"message","content":[{"type":"output_text","text":"hello from upstream"}]}],"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}}
+
+            data: [DONE]
+
+            """
+            return HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+                body: Data(sse.utf8)
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let storeRepo = StaticStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "proxy@example.com",
+                        accountID: "acct",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["tokens": .object(["access_token": .string("token"), "account_id": .string("acct"), "id_token": .string("id-token")])]),
+                        addedAt: 0,
+                        updatedAt: 0,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepo,
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 47001...52000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5.4",
+            "max_tokens": 32000,
+            "reasoningSummary": "auto",
+            "reasoning_effort": "medium",
+            "verbosity": "low",
+            "stream": true,
+            "stream_options": [
+                "include_usage": true
+            ],
+            "messages": [
+                [
+                    "role": "system",
+                    "content": "You are OpenCode."
+                ],
+                [
+                    "role": "user",
+                    "content": "hello"
+                ]
+            ]
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let upstreamRequest = await upstreamProbe.lastRequest
+        let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertNil(upstreamBody["stream_options"])
+        XCTAssertNil(upstreamBody["reasoningSummary"])
+        XCTAssertNil(upstreamBody["verbosity"])
+
+        let reasoning = upstreamBody["reasoning"] as? [String: Any]
+        XCTAssertEqual(reasoning?["summary"] as? String, "auto")
+        XCTAssertEqual(reasoning?["effort"] as? String, "medium")
+
+        let text = upstreamBody["text"] as? [String: Any]
+        XCTAssertEqual(text?["verbosity"] as? String, "low")
     }
 
     func testCompletionsProxyForwardsToConfiguredUpstream() async throws {
@@ -944,7 +1190,9 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
         XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
         XCTAssertEqual(upstreamBody["input"] as? String, "legacy prompt")
-        XCTAssertEqual(upstreamBody["max_output_tokens"] as? Int, 64)
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
         XCTAssertEqual(upstreamBody["temperature"] as? Double, 0.4)
         XCTAssertEqual(
             upstreamBody["instructions"] as? String,
@@ -1297,7 +1545,8 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": "gpt-5-4",
             "input": "hello",
-            "store": true
+            "store": true,
+            "max_output_tokens": 512
         ])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
@@ -1318,12 +1567,106 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
 
         let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
         XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
-        XCTAssertEqual(upstreamBody["store"] as? Bool, true)
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
         XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
         XCTAssertEqual(
             upstreamBody["instructions"] as? String,
             SwiftNativeProxyRuntimeService.defaultRequiredInstructions
         )
+    }
+
+    func testOpenCodeResponsesTitleFixtureCanonicalizesUpstreamPayload() async throws {
+        let roundTrip = try await exerciseFixtureProxyRequest(
+            route: "/v1/responses",
+            fixtureName: "opencode_responses_title",
+            upstreamResponse: completedResponsesSSE(text: "title ok")
+        )
+
+        let upstreamBody = roundTrip.snapshot.jsonBody
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
+        XCTAssertEqual((upstreamBody["include"] as? [String]) ?? [], ["reasoning.encrypted_content"])
+        XCTAssertEqual((upstreamBody["reasoning"] as? [String: Any])?["effort"] as? String, "low")
+
+        let input = try XCTUnwrap(upstreamBody["input"] as? [[String: Any]])
+        XCTAssertEqual(input.count, 3)
+        XCTAssertEqual(input.first?["role"] as? String, "developer")
+    }
+
+    func testOpenCodeResponsesMainFixtureCanonicalizesUpstreamPayload() async throws {
+        let roundTrip = try await exerciseFixtureProxyRequest(
+            route: "/v1/responses",
+            fixtureName: "opencode_responses_main",
+            upstreamResponse: completedResponsesSSE(text: "main ok")
+        )
+
+        let upstreamBody = roundTrip.snapshot.jsonBody
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertNil(upstreamBody["stream_options"])
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
+
+        let reasoning = upstreamBody["reasoning"] as? [String: Any]
+        XCTAssertEqual(reasoning?["summary"] as? String, "auto")
+        XCTAssertEqual(reasoning?["effort"] as? String, "medium")
+
+        let text = upstreamBody["text"] as? [String: Any]
+        XCTAssertEqual(text?["verbosity"] as? String, "low")
+        XCTAssertEqual((upstreamBody["tools"] as? [[String: Any]])?.count, 1)
+    }
+
+    func testOpenCodeChatCompletionsFixtureCanonicalizesUpstreamPayload() async throws {
+        let roundTrip = try await exerciseFixtureProxyRequest(
+            route: "/v1/chat/completions",
+            fixtureName: "opencode_chat_completions",
+            upstreamResponse: completedResponsesSSE(text: "chat ok")
+        )
+
+        let upstreamBody = roundTrip.snapshot.jsonBody
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertNil(upstreamBody["stream_options"])
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
+
+        let reasoning = upstreamBody["reasoning"] as? [String: Any]
+        XCTAssertEqual(reasoning?["summary"] as? String, "auto")
+        XCTAssertEqual(reasoning?["effort"] as? String, "medium")
+
+        let text = upstreamBody["text"] as? [String: Any]
+        XCTAssertEqual(text?["verbosity"] as? String, "low")
+        XCTAssertTrue((upstreamBody["instructions"] as? String)?.contains("You are OpenCode") == true)
+
+        let input = try XCTUnwrap(upstreamBody["input"] as? [[String: Any]])
+        XCTAssertEqual(input.count, 1)
+        XCTAssertEqual(input.first?["role"] as? String, "user")
+    }
+
+    func testCodexCLIResponsesFixtureCanonicalizesUpstreamPayload() async throws {
+        let roundTrip = try await exerciseFixtureProxyRequest(
+            route: "/codex/v1/responses",
+            fixtureName: "codex_cli_responses_minimal",
+            upstreamResponse: completedResponsesSSE(text: "cli ok")
+        )
+
+        let upstreamBody = roundTrip.snapshot.jsonBody
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(upstreamBody["store"] as? Bool, false)
+        XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertNil(upstreamBody["max_tokens"])
+        XCTAssertNil(upstreamBody["max_output_tokens"])
+
+        let input = try XCTUnwrap(upstreamBody["input"] as? [[String: Any]])
+        XCTAssertEqual(input.first?["type"] as? String, "message")
+        XCTAssertEqual(input.first?["role"] as? String, "user")
     }
 
     func testResponsesPreservesExplicitInstructions() async throws {
@@ -1440,9 +1783,139 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertFalse(SimpleHTTPServer.isPayloadOversized(buffer: buffer))
     }
 
+    private func exerciseFixtureProxyRequest(
+        route: String,
+        fixtureName: String,
+        upstreamResponse: HTTPResponse
+    ) async throws -> (data: Data, response: HTTPURLResponse, snapshot: UpstreamRequestProbe.Snapshot) {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 47001...52000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return upstreamResponse
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(store: makeProxyStore()),
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let fixture = try loadFixtureJSON(named: fixtureName)
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)\(route)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: fixture)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (data, rawResponse) = try await URLSession.shared.data(for: request)
+        let response = try XCTUnwrap(rawResponse as? HTTPURLResponse)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let snapshot = await upstreamProbe.lastRequest
+        let unwrappedSnapshot = try XCTUnwrap(snapshot)
+        return (data, response, unwrappedSnapshot)
+    }
+
+    private func loadFixtureJSON(named name: String) throws -> [String: Any] {
+        let fixturesDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/Proxy", isDirectory: true)
+        let url = fixturesDirectory.appendingPathComponent("\(name).json")
+        let data = try Data(contentsOf: url)
+        return try parseJSON(data)
+    }
+
+    private func completedResponsesSSE(text: String) -> HTTPResponse {
+        HTTPResponse(
+            statusCode: 200,
+            headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+            body: Data("""
+            data: {"type":"response.completed","response":{"id":"resp_fixture","created_at":123,"model":"gpt-5.4","output":[{"type":"message","content":[{"type":"output_text","text":"\(text)"}]}]}}
+
+            data: [DONE]
+
+            """.utf8)
+        )
+    }
+
     private func parseJSON(_ data: Data) throws -> [String: Any] {
         let object = try JSONSerialization.jsonObject(with: data)
         return object as? [String: Any] ?? [:]
+    }
+
+    private func listeningSocketDescription(for port: Int) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = [
+            "-Pan",
+            "-p", String(getpid()),
+            "-iTCP:\(port)",
+            "-sTCP:LISTEN"
+        ]
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func makeProxyStore(settings: AppSettings = .defaultValue) -> AccountsStore {
+        AccountsStore(
+            accounts: [
+                StoredAccount(
+                    id: "acct-1",
+                    label: "Primary",
+                    email: "proxy@example.com",
+                    accountID: "acct",
+                    planType: "pro",
+                    teamName: nil,
+                    teamAlias: nil,
+                    authJSON: .object([
+                        "tokens": .object([
+                            "access_token": .string("token"),
+                            "account_id": .string("acct"),
+                            "id_token": .string("id-token")
+                        ])
+                    ]),
+                    addedAt: 0,
+                    updatedAt: 0,
+                    usage: nil,
+                    usageError: nil
+                )
+            ],
+            settings: settings
+        )
     }
 }
 
@@ -1468,6 +1941,22 @@ private final class StaticStoreRepository: AccountsStoreRepository, @unchecked S
 
     func saveStore(_ store: AccountsStore) throws {
         _ = store
+    }
+}
+
+private final class MutableStoreRepository: AccountsStoreRepository, @unchecked Sendable {
+    var store: AccountsStore
+
+    init(store: AccountsStore) {
+        self.store = store
+    }
+
+    func loadStore() throws -> AccountsStore {
+        store
+    }
+
+    func saveStore(_ store: AccountsStore) throws {
+        self.store = store
     }
 }
 

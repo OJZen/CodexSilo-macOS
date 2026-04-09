@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "Launch at startup";
 "settings.auto_refresh_accounts" = "Auto refresh accounts";
 "settings.auto_start_api_proxy" = "Auto start API proxy";
+"settings.allow_lan_proxy_access" = "Allow LAN access to API proxy";
+"settings.allow_lan_proxy_access_hint" = "Off keeps the proxy bound to this Mac only. On lets devices on your local network reach the proxy using this Mac's LAN IP and the same port.";
 "settings.section.deployment" = "Deployment";
 "settings.deployment_mode" = "Mode";
 "settings.deployment_mode.local_device" = "Local device";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "Remote Servers JSON";
 "settings.save_remote_servers" = "Save remote servers";
 "settings.notice.updated" = "Settings updated";
+"settings.notice.proxy_lan_access_updated" = "LAN proxy access updated. Restart the API proxy if it is already running.";
 "settings.notice.restart_target_updated" = "Editor restart target updated";
 "settings.notice.remote_servers_saved" = "Remote server config saved";
 "settings.error.remote_servers_json_utf8" = "Remote servers JSON is not valid UTF-8";
@@ -131,10 +134,13 @@
 "proxy.port_line_format" = "Port: %@";
 "proxy.available_accounts_format" = "Available accounts: %@";
 "proxy.action.refresh_status" = "Refresh status";
+"proxy.action.test_live_request" = "Test live request";
 "proxy.action.start_api_proxy" = "Start API proxy";
 "proxy.action.stop_api_proxy" = "Stop API proxy";
 "proxy.start_on_launch" = "Start on launch";
 "proxy.detail.base_url" = "Base URL";
+"proxy.detail.local_base_url" = "Local Base URL";
+"proxy.detail.lan_base_urls" = "LAN Base URLs";
 "proxy.detail.api_key" = "API Key";
 "proxy.detail.active_routed_account" = "Active routed account";
 "proxy.detail.last_error" = "Last error";
@@ -160,6 +166,9 @@
 "proxy.notice.api_proxy_stopped" = "API proxy stopped";
 "proxy.notice.api_key_refreshed" = "API key refreshed";
 "proxy.notice.auto_start_updated" = "Auto-start setting updated";
+"proxy.notice.test_request_succeeded_format" = "Live test succeeded via %@: %@";
+"proxy.notice.test_request_requires_running_proxy" = "Start the API proxy before running a live test.";
+"proxy.notice.test_request_missing_credentials" = "The proxy is missing a base URL or API key. Start it again and retry.";
 "proxy.notice.server_draft_added" = "Server draft added. Complete fields in Settings JSON.";
 "proxy.notice.remote_deploying_format" = "Remote deploy started: %@";
 "proxy.notice.remote_deploy_done_format" = "Remote deploy finished: %@";

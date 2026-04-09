@@ -310,6 +310,10 @@ actor SettingsCoordinator {
         try storeRepository.loadStore().settings
     }
 
+    func proxyLiveTestLogs() throws -> [ProxyLiveTestLogEntry] {
+        try storeRepository.loadStore().proxyLiveTestLogs
+    }
+
     func updateSettings(_ patch: AppSettingsPatch) throws -> AppSettings {
         let launchAtStartupPatch = patch.launchAtStartup
 
@@ -320,6 +324,7 @@ actor SettingsCoordinator {
         if let value = patch.autoRefreshAccounts { settings.autoRefreshAccounts = value }
         if let value = patch.autoSmartSwitch { settings.autoSmartSwitch = value }
         if let value = patch.autoStartApiProxy { settings.autoStartApiProxy = value }
+        if let value = patch.allowLanProxyAccess { settings.allowLanProxyAccess = value }
         if let value = patch.locale { settings.locale = AppLocale.resolve(value).identifier }
 
         store.settings = settings
@@ -330,6 +335,12 @@ actor SettingsCoordinator {
         }
 
         return settings
+    }
+
+    func clearProxyLiveTestLogs() throws {
+        var store = try storeRepository.loadStore()
+        store.proxyLiveTestLogs = []
+        try storeRepository.saveStore(store)
     }
 
     func syncLaunchAtStartupFromStore() throws {

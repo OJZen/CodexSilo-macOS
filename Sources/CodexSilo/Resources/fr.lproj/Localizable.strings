@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "Lancer au démarrage";
 "settings.auto_refresh_accounts" = "Actualiser automatiquement les comptes";
 "settings.auto_start_api_proxy" = "Démarrer automatiquement l'API Proxy";
+"settings.allow_lan_proxy_access" = "Autoriser l'accès LAN à l'API Proxy";
+"settings.allow_lan_proxy_access_hint" = "Désactivé, le proxy reste limité à ce Mac. Activé, les appareils de votre réseau local peuvent utiliser l'IP LAN de ce Mac avec le même port.";
 "settings.section.deployment" = "Déploiement";
 "settings.deployment_mode" = "Mode";
 "settings.deployment_mode.local_device" = "Appareil local";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "JSON des serveurs distants";
 "settings.save_remote_servers" = "Enregistrer les serveurs distants";
 "settings.notice.updated" = "Réglages mis à jour";
+"settings.notice.proxy_lan_access_updated" = "L'accès LAN du proxy a été mis à jour. Redémarrez l'API Proxy s'il est déjà en cours d'exécution.";
 "settings.notice.restart_target_updated" = "Cible de redémarrage mise à jour";
 "settings.notice.remote_servers_saved" = "Configuration des serveurs distants enregistrée";
 "settings.error.remote_servers_json_utf8" = "Le JSON des serveurs distants n'est pas en UTF-8 valide";
@@ -129,6 +132,7 @@
 "proxy.port_line_format" = "Port : %@";
 "proxy.available_accounts_format" = "Comptes disponibles : %@";
 "proxy.action.refresh_status" = "Actualiser l'état";
+"proxy.action.test_live_request" = "Tester une requête réelle";
 "proxy.action.start_api_proxy" = "Démarrer l'API Proxy";
 "proxy.action.stop_api_proxy" = "Arrêter l'API Proxy";
 "proxy.start_on_launch" = "Démarrer au lancement";
@@ -158,6 +162,9 @@
 "proxy.notice.api_proxy_stopped" = "API Proxy arrêté";
 "proxy.notice.api_key_refreshed" = "Clé API actualisée";
 "proxy.notice.auto_start_updated" = "Réglage de démarrage automatique mis à jour";
+"proxy.notice.test_request_succeeded_format" = "Test réel réussi via %@ : %@";
+"proxy.notice.test_request_requires_running_proxy" = "Démarrez l'API Proxy avant de lancer un test réel.";
+"proxy.notice.test_request_missing_credentials" = "Le proxy n'a pas d'URL de base ou de clé API. Redémarrez-le puis réessayez.";
 "proxy.notice.server_draft_added" = "Brouillon de serveur ajouté. Complétez les champs dans le JSON des réglages.";
 "proxy.notice.remote_deploying_format" = "Déploiement distant démarré : %@";
 "proxy.notice.remote_deploy_done_format" = "Déploiement distant terminé : %@";

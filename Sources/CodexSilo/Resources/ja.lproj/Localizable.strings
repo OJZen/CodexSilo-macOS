@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "ログイン時に起動";
 "settings.auto_refresh_accounts" = "アカウント情報を自動更新";
 "settings.auto_start_api_proxy" = "API プロキシを自動起動";
+"settings.allow_lan_proxy_access" = "API プロキシへの LAN アクセスを許可";
+"settings.allow_lan_proxy_access_hint" = "オフではこの Mac のみで待ち受けます。オンにすると、この Mac の LAN IP と同じポートでローカルネットワーク上の他の端末からアクセスできます。";
 "settings.section.deployment" = "デプロイモード";
 "settings.deployment_mode" = "モード";
 "settings.deployment_mode.local_device" = "ローカル実行";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "リモートサーバー JSON";
 "settings.save_remote_servers" = "リモートサーバーを保存";
 "settings.notice.updated" = "設定を更新しました";
+"settings.notice.proxy_lan_access_updated" = "LAN 経由のプロキシアクセス設定を更新しました。すでに起動中の場合は API プロキシを再起動してください。";
 "settings.notice.restart_target_updated" = "再起動対象を更新しました";
 "settings.notice.remote_servers_saved" = "リモートサーバー設定を保存しました";
 "settings.error.remote_servers_json_utf8" = "Remote servers JSON は有効な UTF-8 ではありません";
@@ -131,10 +134,13 @@
 "proxy.port_line_format" = "ポート: %@";
 "proxy.available_accounts_format" = "利用可能アカウント: %@";
 "proxy.action.refresh_status" = "ステータス更新";
+"proxy.action.test_live_request" = "実リクエストをテスト";
 "proxy.action.start_api_proxy" = "API プロキシ開始";
 "proxy.action.stop_api_proxy" = "API プロキシ停止";
 "proxy.start_on_launch" = "起動時に開始";
 "proxy.detail.base_url" = "Base URL";
+"proxy.detail.local_base_url" = "ローカル Base URL";
+"proxy.detail.lan_base_urls" = "LAN Base URLs";
 "proxy.detail.api_key" = "API Key";
 "proxy.detail.active_routed_account" = "現在のルーティング先アカウント";
 "proxy.detail.last_error" = "最新エラー";
@@ -160,6 +166,9 @@
 "proxy.notice.api_proxy_stopped" = "API プロキシを停止しました";
 "proxy.notice.api_key_refreshed" = "API Key を更新しました";
 "proxy.notice.auto_start_updated" = "自動起動設定を更新しました";
+"proxy.notice.test_request_succeeded_format" = "%@ 経由の実テストに成功しました: %@";
+"proxy.notice.test_request_requires_running_proxy" = "実テストを実行する前に API プロキシを起動してください。";
+"proxy.notice.test_request_missing_credentials" = "プロキシにベース URL または API キーがありません。再起動してもう一度試してください。";
 "proxy.notice.server_draft_added" = "サーバー下書きを追加しました。Settings の JSON で項目を補完してください。";
 "proxy.notice.remote_deploying_format" = "リモートデプロイ開始: %@";
 "proxy.notice.remote_deploy_done_format" = "リモートデプロイ完了: %@";

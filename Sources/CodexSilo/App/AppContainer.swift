@@ -41,7 +41,10 @@ struct AppContainer {
                 currentAccountKey: authRepository.currentAuthAccountKey(),
                 currentVariantKey: authRepository.currentAuthVariantKey()
             )
-            let proxyCoordinator = ProxyCoordinator(proxyService: proxyService)
+            let proxyCoordinator = ProxyCoordinator(
+                proxyService: proxyService,
+                storeRepository: storeRepository
+            )
             let trayModel = TrayMenuModel(
                 accountsCoordinator: accountsCoordinator,
                 settingsCoordinator: settingsCoordinator,

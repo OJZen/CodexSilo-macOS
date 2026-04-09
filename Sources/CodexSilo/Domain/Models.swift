@@ -13,6 +13,7 @@ struct AccountsStore: Codable, Equatable {
     var accounts: [StoredAccount] = []
     var currentSelection: CurrentAccountSelection?
     var accountsOverviewCollapsed: Bool = false
+    var proxyLiveTestLogs: [ProxyLiveTestLogEntry] = []
     var settings: AppSettings = .defaultValue
 
     enum CodingKeys: String, CodingKey {
@@ -20,6 +21,7 @@ struct AccountsStore: Codable, Equatable {
         case accounts
         case currentSelection
         case accountsOverviewCollapsed
+        case proxyLiveTestLogs
         case settings
     }
 
@@ -28,12 +30,14 @@ struct AccountsStore: Codable, Equatable {
         accounts: [StoredAccount] = [],
         currentSelection: CurrentAccountSelection? = nil,
         accountsOverviewCollapsed: Bool = false,
+        proxyLiveTestLogs: [ProxyLiveTestLogEntry] = [],
         settings: AppSettings = .defaultValue
     ) {
         self.version = version
         self.accounts = accounts
         self.currentSelection = currentSelection
         self.accountsOverviewCollapsed = accountsOverviewCollapsed
+        self.proxyLiveTestLogs = proxyLiveTestLogs
         self.settings = settings
     }
 
@@ -43,6 +47,7 @@ struct AccountsStore: Codable, Equatable {
         accounts = try container.decodeIfPresent([StoredAccount].self, forKey: .accounts) ?? []
         currentSelection = try container.decodeIfPresent(CurrentAccountSelection.self, forKey: .currentSelection)
         accountsOverviewCollapsed = try container.decodeIfPresent(Bool.self, forKey: .accountsOverviewCollapsed) ?? false
+        proxyLiveTestLogs = try container.decodeIfPresent([ProxyLiveTestLogEntry].self, forKey: .proxyLiveTestLogs) ?? []
         settings = try container.decodeIfPresent(AppSettings.self, forKey: .settings) ?? .defaultValue
     }
 
@@ -52,6 +57,7 @@ struct AccountsStore: Codable, Equatable {
         try container.encode(accounts, forKey: .accounts)
         try container.encodeIfPresent(currentSelection, forKey: .currentSelection)
         try container.encode(accountsOverviewCollapsed, forKey: .accountsOverviewCollapsed)
+        try container.encode(proxyLiveTestLogs, forKey: .proxyLiveTestLogs)
         try container.encode(settings, forKey: .settings)
     }
 }
@@ -557,6 +563,7 @@ struct AppSettings: Codable, Equatable {
     var autoRefreshAccounts: Bool
     var autoSmartSwitch: Bool
     var autoStartApiProxy: Bool
+    var allowLanProxyAccess: Bool
     var locale: String
 
     enum CodingKeys: String, CodingKey {
@@ -564,6 +571,7 @@ struct AppSettings: Codable, Equatable {
         case autoRefreshAccounts
         case autoSmartSwitch
         case autoStartApiProxy
+        case allowLanProxyAccess
         case locale
     }
 
@@ -572,12 +580,14 @@ struct AppSettings: Codable, Equatable {
         autoRefreshAccounts: Bool,
         autoSmartSwitch: Bool,
         autoStartApiProxy: Bool,
+        allowLanProxyAccess: Bool = false,
         locale: String
     ) {
         self.launchAtStartup = launchAtStartup
         self.autoRefreshAccounts = autoRefreshAccounts
         self.autoSmartSwitch = autoSmartSwitch
         self.autoStartApiProxy = autoStartApiProxy
+        self.allowLanProxyAccess = allowLanProxyAccess
         self.locale = AppLocale.resolve(locale).identifier
     }
 
@@ -589,6 +599,7 @@ struct AppSettings: Codable, Equatable {
         autoRefreshAccounts = try container.decodeIfPresent(Bool.self, forKey: .autoRefreshAccounts) ?? fallback.autoRefreshAccounts
         autoSmartSwitch = try container.decodeIfPresent(Bool.self, forKey: .autoSmartSwitch) ?? fallback.autoSmartSwitch
         autoStartApiProxy = try container.decodeIfPresent(Bool.self, forKey: .autoStartApiProxy) ?? fallback.autoStartApiProxy
+        allowLanProxyAccess = try container.decodeIfPresent(Bool.self, forKey: .allowLanProxyAccess) ?? fallback.allowLanProxyAccess
 
         let rawLocale = try container.decodeIfPresent(String.self, forKey: .locale) ?? fallback.locale
         locale = AppLocale.resolve(rawLocale).identifier
@@ -600,6 +611,7 @@ struct AppSettings: Codable, Equatable {
         try container.encode(autoRefreshAccounts, forKey: .autoRefreshAccounts)
         try container.encode(autoSmartSwitch, forKey: .autoSmartSwitch)
         try container.encode(autoStartApiProxy, forKey: .autoStartApiProxy)
+        try container.encode(allowLanProxyAccess, forKey: .allowLanProxyAccess)
         try container.encode(locale, forKey: .locale)
     }
 
@@ -609,6 +621,7 @@ struct AppSettings: Codable, Equatable {
             autoRefreshAccounts: true,
             autoSmartSwitch: false,
             autoStartApiProxy: false,
+            allowLanProxyAccess: false,
             locale: AppLocale.automatic.identifier
         )
     }
@@ -619,6 +632,7 @@ struct AppSettingsPatch {
     var autoRefreshAccounts: Bool? = nil
     var autoSmartSwitch: Bool? = nil
     var autoStartApiProxy: Bool? = nil
+    var allowLanProxyAccess: Bool? = nil
     var locale: String? = nil
 }
 
@@ -627,21 +641,63 @@ struct ApiProxyStatus: Codable, Equatable {
     var port: Int?
     var apiKey: String?
     var baseURL: String?
+    var lanBaseURLs: [String]
     var availableAccounts: Int
     var activeAccountID: String?
     var activeAccountLabel: String?
     var lastError: String?
+
+    init(
+        running: Bool,
+        port: Int?,
+        apiKey: String?,
+        baseURL: String?,
+        lanBaseURLs: [String] = [],
+        availableAccounts: Int,
+        activeAccountID: String?,
+        activeAccountLabel: String?,
+        lastError: String?
+    ) {
+        self.running = running
+        self.port = port
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.lanBaseURLs = lanBaseURLs
+        self.availableAccounts = availableAccounts
+        self.activeAccountID = activeAccountID
+        self.activeAccountLabel = activeAccountLabel
+        self.lastError = lastError
+    }
 
     static let idle = ApiProxyStatus(
         running: false,
         port: nil,
         apiKey: nil,
         baseURL: nil,
+        lanBaseURLs: [],
         availableAccounts: 0,
         activeAccountID: nil,
         activeAccountLabel: nil,
         lastError: nil
     )
+}
+
+struct ProxyLiveTestResult: Equatable {
+    var model: String
+    var outputPreview: String
+}
+
+struct ProxyLiveTestLogEntry: Codable, Equatable, Identifiable {
+    enum Status: String, Codable, Equatable {
+        case success
+        case error
+    }
+
+    var id: String
+    var createdAt: Int64
+    var model: String
+    var status: Status
+    var message: String
 }
 
 struct PendingUpdateInfo: Equatable {

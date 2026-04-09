@@ -1,0 +1,36 @@
+{
+  "model": "gpt-5.4",
+  "input": [
+    {
+      "role": "developer",
+      "content": "You are a title generator."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Generate a title for this conversation:\n"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "简单介绍一下这个项目"
+        }
+      ]
+    }
+  ],
+  "max_output_tokens": 32000,
+  "store": false,
+  "include": [
+    "reasoning.encrypted_content"
+  ],
+  "reasoning": {
+    "effort": "low"
+  },
+  "stream": true
+}

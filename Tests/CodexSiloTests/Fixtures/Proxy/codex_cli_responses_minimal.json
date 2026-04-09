@@ -1,0 +1,22 @@
+{
+  "model": "gpt-5.4",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Reply with OK."
+        }
+      ]
+    }
+  ],
+  "store": true,
+  "stream": true,
+  "max_output_tokens": 1024,
+  "reasoning": {
+    "effort": "medium",
+    "summary": "auto"
+  }
+}

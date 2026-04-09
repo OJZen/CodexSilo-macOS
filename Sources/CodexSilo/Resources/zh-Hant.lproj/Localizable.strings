@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "開機啟動";
 "settings.auto_refresh_accounts" = "自動刷新帳戶資訊";
 "settings.auto_start_api_proxy" = "自動啟動 API Proxy";
+"settings.allow_lan_proxy_access" = "允許區域網路存取 API Proxy";
+"settings.allow_lan_proxy_access_hint" = "關閉時代理只會綁定在這台 Mac。開啟後，同一區域網路內的裝置可透過這台 Mac 的區網 IP 和相同連接埠存取代理。";
 "settings.section.deployment" = "部署";
 "settings.deployment_mode" = "模式";
 "settings.deployment_mode.local_device" = "本機執行";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "遠端伺服器 JSON";
 "settings.save_remote_servers" = "儲存遠端伺服器";
 "settings.notice.updated" = "設定已更新";
+"settings.notice.proxy_lan_access_updated" = "區域網路代理存取設定已更新。如果代理已在執行，請重新啟動後生效。";
 "settings.notice.restart_target_updated" = "重啟目標已更新";
 "settings.notice.remote_servers_saved" = "遠端伺服器設定已儲存";
 "settings.error.remote_servers_json_utf8" = "遠端伺服器 JSON 不是合法 UTF-8";
@@ -129,6 +132,7 @@
 "proxy.port_line_format" = "連接埠：%@";
 "proxy.available_accounts_format" = "可用帳號：%@";
 "proxy.action.refresh_status" = "重新整理狀態";
+"proxy.action.test_live_request" = "測試真實請求";
 "proxy.action.start_api_proxy" = "啟動 API 代理";
 "proxy.action.stop_api_proxy" = "停止 API 代理";
 "proxy.start_on_launch" = "啟動時自動運行";
@@ -158,6 +162,9 @@
 "proxy.notice.api_proxy_stopped" = "API 代理已停止";
 "proxy.notice.api_key_refreshed" = "API 金鑰已刷新";
 "proxy.notice.auto_start_updated" = "自動啟動設定已更新";
+"proxy.notice.test_request_succeeded_format" = "透過 %@ 的真實測試成功：%@";
+"proxy.notice.test_request_requires_running_proxy" = "請先啟動 API 代理，再執行真實測試。";
+"proxy.notice.test_request_missing_credentials" = "代理缺少基礎 URL 或 API 金鑰。請重新啟動後再試。";
 "proxy.notice.server_draft_added" = "已新增伺服器草稿，請在 Settings JSON 中補齊欄位。";
 "proxy.notice.remote_deploying_format" = "遠端部署已開始：%@";
 "proxy.notice.remote_deploy_done_format" = "遠端部署完成：%@";

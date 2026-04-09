@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "Abrir al iniciar sesión";
 "settings.auto_refresh_accounts" = "Actualizar cuentas automáticamente";
 "settings.auto_start_api_proxy" = "Iniciar API Proxy automáticamente";
+"settings.allow_lan_proxy_access" = "Permitir acceso LAN al API Proxy";
+"settings.allow_lan_proxy_access_hint" = "Desactivado mantiene el proxy solo en este Mac. Activado permite a otros dispositivos de la red local usar la IP LAN de este Mac con el mismo puerto.";
 "settings.section.deployment" = "Despliegue";
 "settings.deployment_mode" = "Modo";
 "settings.deployment_mode.local_device" = "Dispositivo local";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "JSON de servidores remotos";
 "settings.save_remote_servers" = "Guardar servidores remotos";
 "settings.notice.updated" = "Ajustes actualizados";
+"settings.notice.proxy_lan_access_updated" = "Se actualizó el acceso LAN del proxy. Reinicia el API Proxy si ya está en ejecución.";
 "settings.notice.restart_target_updated" = "Objetivo de reinicio actualizado";
 "settings.notice.remote_servers_saved" = "Configuración de servidores remotos guardada";
 "settings.error.remote_servers_json_utf8" = "El JSON de servidores remotos no es UTF-8 válido";
@@ -129,6 +132,7 @@
 "proxy.port_line_format" = "Puerto: %@";
 "proxy.available_accounts_format" = "Cuentas disponibles: %@";
 "proxy.action.refresh_status" = "Actualizar estado";
+"proxy.action.test_live_request" = "Probar solicitud real";
 "proxy.action.start_api_proxy" = "Iniciar API Proxy";
 "proxy.action.stop_api_proxy" = "Detener API Proxy";
 "proxy.start_on_launch" = "Iniciar al abrir";
@@ -158,6 +162,9 @@
 "proxy.notice.api_proxy_stopped" = "API Proxy detenido";
 "proxy.notice.api_key_refreshed" = "Clave API actualizada";
 "proxy.notice.auto_start_updated" = "Ajuste de inicio automático actualizado";
+"proxy.notice.test_request_succeeded_format" = "Prueba real correcta vía %@: %@";
+"proxy.notice.test_request_requires_running_proxy" = "Inicia el API Proxy antes de ejecutar una prueba real.";
+"proxy.notice.test_request_missing_credentials" = "Al proxy le falta la URL base o la clave API. Reinícialo y vuelve a intentarlo.";
 "proxy.notice.server_draft_added" = "Borrador de servidor añadido. Completa los campos en el JSON de ajustes.";
 "proxy.notice.remote_deploying_format" = "Despliegue remoto iniciado: %@";
 "proxy.notice.remote_deploy_done_format" = "Despliegue remoto finalizado: %@";

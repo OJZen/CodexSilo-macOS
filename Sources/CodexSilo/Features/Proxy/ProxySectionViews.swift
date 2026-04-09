@@ -42,6 +42,7 @@ struct ApiProxySectionView: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.regular)
+                .disabled(model.controlsBusy)
             }
         }
     }
@@ -50,10 +51,22 @@ struct ApiProxySectionView: View {
         proxyPanel {
             VStack(alignment: .leading, spacing: 12) {
                 ProxyValueRow(
-                    title: L10n.tr("proxy.detail.base_url"),
+                    title: model.proxyStatus.lanBaseURLs.isEmpty
+                        ? L10n.tr("proxy.detail.base_url")
+                        : L10n.tr("proxy.detail.local_base_url"),
                     value: model.proxyStatus.baseURL ?? L10n.tr("proxy.value.generated_after_start"),
                     canCopy: model.proxyStatus.baseURL != nil
                 )
+
+                if !model.proxyStatus.lanBaseURLs.isEmpty {
+                    Divider()
+
+                    ProxyValueRow(
+                        title: L10n.tr("proxy.detail.lan_base_urls"),
+                        value: model.proxyStatus.lanBaseURLs.joined(separator: "\n"),
+                        canCopy: true
+                    )
+                }
 
                 Divider()
 
@@ -68,7 +81,7 @@ struct ApiProxySectionView: View {
                         Label("common.refresh", systemImage: "arrow.clockwise")
                     }
                     .codexsiloActionButtonStyle()
-                    .disabled(model.loading)
+                    .disabled(model.controlsBusy)
                 }
 
                 Divider()
@@ -140,6 +153,7 @@ struct ApiProxySectionView: View {
             TextField("8787", text: $model.preferredPortText)
                 .frostedRoundedInput()
                 .frame(width: LayoutRules.proxyHeroPortFieldWidth)
+                .disabled(model.controlsBusy)
         }
     }
 
@@ -149,20 +163,39 @@ struct ApiProxySectionView: View {
                 Task { await model.refreshStatus() }
             }
             .liquidGlassActionButtonStyle(density: .compact)
-            .disabled(model.loading)
+            .disabled(model.controlsBusy)
+
+            Button {
+                Task { await model.testLiveRequest() }
+            } label: {
+                HStack(spacing: 6) {
+                    if model.testingLiveRequest {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(L10n.tr("proxy.action.test_live_request"))
+                }
+            }
+            .liquidGlassActionButtonStyle(density: .compact)
+            .disabled(
+                model.controlsBusy
+                    || !model.proxyStatus.running
+                    || model.proxyStatus.baseURL == nil
+                    || model.proxyStatus.apiKey == nil
+            )
 
             if model.proxyStatus.running {
                 Button("proxy.action.stop_api_proxy", role: .destructive) {
                     Task { await model.stopProxy() }
                 }
                 .liquidGlassActionButtonStyle(prominent: true, tint: .red, density: .compact)
-                .disabled(model.loading)
+                .disabled(model.controlsBusy)
             } else {
                 Button("proxy.action.start_api_proxy") {
                     Task { await model.startProxy() }
                 }
                 .liquidGlassActionButtonStyle(prominent: true, density: .compact)
-                .disabled(model.loading)
+                .disabled(model.controlsBusy)
             }
         }
     }

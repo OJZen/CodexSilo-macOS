@@ -19,6 +19,7 @@ struct SettingsPageView: View {
                 languageSection
                 switchBehaviorSection
                 dataTransferSection
+                logsSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -31,6 +32,7 @@ struct SettingsPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await model.loadIfNeeded()
+            await model.refreshLiveTestLogs()
         }
         .sheet(item: $transferDialogMode) { mode in
             SettingsDataTransferDialog(mode: mode, model: model)
@@ -94,6 +96,18 @@ struct SettingsPageView: View {
                 Label("settings.auto_start_api_proxy", systemImage: "network")
             }
             .toggleStyle(.switch)
+
+            Toggle(isOn: Binding(
+                get: { model.settings.allowLanProxyAccess },
+                set: { model.setAllowLanProxyAccess($0) }
+            )) {
+                Label("settings.allow_lan_proxy_access", systemImage: "network")
+            }
+            .toggleStyle(.switch)
+
+            Text(L10n.tr("settings.allow_lan_proxy_access_hint"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         } header: {
             Label(L10n.tr("settings.section.general"), systemImage: "slider.horizontal.3")
         }
@@ -172,6 +186,43 @@ struct SettingsPageView: View {
         }
     }
 
+    private var logsSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(L10n.tr("common.logs"))
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    if !model.liveTestLogs.isEmpty {
+                        Button(L10n.tr("common.remove")) {
+                            Task { await model.clearProxyLiveTestLogs() }
+                        }
+                        .codexsiloActionButtonStyle()
+                        .disabled(model.logsBusy)
+                    }
+                }
+
+                if model.liveTestLogs.isEmpty {
+                    Text(L10n.tr("common.none"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(model.liveTestLogs) { entry in
+                            SettingsLiveTestLogRow(entry: entry)
+                            if entry.id != model.liveTestLogs.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Label(L10n.tr("common.logs"), systemImage: "doc.text")
+        }
+    }
+
     private var versionFooter: some View {
         Text(L10n.tr("settings.about.version_format", AppVersion.current))
             .font(.caption)
@@ -228,6 +279,52 @@ struct SettingsPageView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct SettingsLiveTestLogRow: View {
+    let entry: ProxyLiveTestLogEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle()
+                    .fill(entry.status == .success ? Color.mint : Color.red)
+                    .frame(width: 8, height: 8)
+
+                Text(entry.model)
+                    .font(.subheadline.weight(.semibold))
+
+                Spacer(minLength: 0)
+
+                Text(timestampText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    PlatformClipboard.copy(entry.message)
+                } label: {
+                    Label("common.copy", systemImage: "doc.on.doc")
+                }
+                .codexsiloActionButtonStyle()
+            }
+
+            Text(entry.message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var timestampText: String {
+        let date = Date(timeIntervalSince1970: TimeInterval(entry.createdAt))
+        return LocalizedDateFormatterCache.shared.string(
+            from: date,
+            locale: .autoupdatingCurrent,
+            dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
+            timeStyle: .medium
+        )
     }
 }
 

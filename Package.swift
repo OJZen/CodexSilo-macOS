@@ -24,7 +24,10 @@ let package = Package(
         .testTarget(
             name: "CodexSiloTests",
             dependencies: ["CodexSilo"],
-            path: "Tests/CodexSiloTests"
+            path: "Tests/CodexSiloTests",
+            exclude: [
+                "Fixtures"
+            ]
         )
     ]
 )

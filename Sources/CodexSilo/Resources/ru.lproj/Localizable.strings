@@ -22,6 +22,8 @@
 "settings.launch_at_startup" = "Запускать при входе";
 "settings.auto_refresh_accounts" = "Автообновление аккаунтов";
 "settings.auto_start_api_proxy" = "Автозапуск API Proxy";
+"settings.allow_lan_proxy_access" = "Разрешить доступ к API Proxy по локальной сети";
+"settings.allow_lan_proxy_access_hint" = "Выкл. оставляет прокси доступным только на этом Mac. Вкл. позволяет устройствам в локальной сети подключаться по LAN-IP этого Mac и тому же порту.";
 "settings.section.deployment" = "Развертывание";
 "settings.deployment_mode" = "Режим";
 "settings.deployment_mode.local_device" = "Локальное устройство";
@@ -56,6 +58,7 @@
 "settings.section.remote_servers_json" = "JSON удаленных серверов";
 "settings.save_remote_servers" = "Сохранить удаленные серверы";
 "settings.notice.updated" = "Настройки обновлены";
+"settings.notice.proxy_lan_access_updated" = "Доступ к прокси по локальной сети обновлен. Если API Proxy уже запущен, перезапустите его.";
 "settings.notice.restart_target_updated" = "Цель перезапуска обновлена";
 "settings.notice.remote_servers_saved" = "Конфигурация удаленных серверов сохранена";
 "settings.error.remote_servers_json_utf8" = "JSON удаленных серверов не является корректным UTF-8";
@@ -129,6 +132,7 @@
 "proxy.port_line_format" = "Порт: %@";
 "proxy.available_accounts_format" = "Доступные аккаунты: %@";
 "proxy.action.refresh_status" = "Обновить статус";
+"proxy.action.test_live_request" = "Проверить реальный запрос";
 "proxy.action.start_api_proxy" = "Запустить API Proxy";
 "proxy.action.stop_api_proxy" = "Остановить API Proxy";
 "proxy.start_on_launch" = "Запускать при открытии";
@@ -158,6 +162,9 @@
 "proxy.notice.api_proxy_stopped" = "API Proxy остановлен";
 "proxy.notice.api_key_refreshed" = "API-ключ обновлен";
 "proxy.notice.auto_start_updated" = "Настройка автозапуска обновлена";
+"proxy.notice.test_request_succeeded_format" = "Реальный тест через %@ успешен: %@";
+"proxy.notice.test_request_requires_running_proxy" = "Сначала запустите API Proxy, а затем выполняйте реальный тест.";
+"proxy.notice.test_request_missing_credentials" = "У proxy отсутствует базовый URL или API-ключ. Перезапустите его и попробуйте снова.";
 "proxy.notice.server_draft_added" = "Черновик сервера добавлен. Заполните поля в JSON настроек.";
 "proxy.notice.remote_deploying_format" = "Удаленное развертывание начато: %@";
 "proxy.notice.remote_deploy_done_format" = "Удаленное развертывание завершено: %@";
