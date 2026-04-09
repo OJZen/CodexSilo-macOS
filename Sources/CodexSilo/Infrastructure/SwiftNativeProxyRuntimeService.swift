@@ -35,6 +35,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private static let clientVisibleModels = stableClientModels + compatibilityCodexModels
     private static let defaultCodexClientVersion = "0.101.0"
     private static let defaultCodexUserAgent = "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464"
+    static let defaultRequiredInstructions = "Assist the user with the request."
     private static let excludedForwardRequestHeaders: Set<String> = [
         "accept",
         "authorization",
@@ -79,11 +80,23 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         "/v1/v1/responses/compact",
         "/codex/v1/responses/compact"
     ]
+    private static let modelsPaths: Set<String> = [
+        "/models",
+        "/v1/models",
+        "/v1/v1/models",
+        "/codex/v1/models"
+    ]
     private static let chatCompletionsPaths: Set<String> = [
         "/chat/completions",
         "/v1/chat/completions",
         "/v1/v1/chat/completions",
         "/codex/v1/chat/completions"
+    ]
+    private static let completionsPaths: Set<String> = [
+        "/completions",
+        "/v1/completions",
+        "/v1/v1/completions",
+        "/codex/v1/completions"
     ]
 
     private let paths: FileSystemPaths
@@ -200,7 +213,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return jsonError(statusCode: 401, message: "Invalid proxy api key.")
         }
 
-        if request.path == "/v1/models" && request.method == "GET" {
+        if Self.modelsPaths.contains(request.path) && request.method == "GET" {
             let list = models.map { model in
                 [
                     "id": model,
@@ -222,6 +235,10 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
         if Self.chatCompletionsPaths.contains(request.path) && request.method == "POST" {
             return await handleChatCompletionsRequest(request)
+        }
+
+        if Self.completionsPaths.contains(request.path) && request.method == "POST" {
+            return await handleCompletionsRequest(request)
         }
 
         return jsonError(
@@ -353,6 +370,143 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         return downstreamResponse(from: upstream)
+    }
+
+    private func handleCompletionsRequest(_ request: HTTPRequest) async -> HTTPResponse {
+        let object: [String: Any]
+        do {
+            object = try parseJSONObject(from: request.body)
+        } catch {
+            return jsonError(statusCode: 400, message: error.localizedDescription)
+        }
+
+        if let prompts = try? normalizedLegacyPrompts(object["prompt"]),
+           prompts.count > 1 {
+            let downstreamStream = (object["stream"] as? Bool) ?? false
+            guard !downstreamStream else {
+                return jsonError(statusCode: 400, message: "Streaming is not supported for batched completions prompts.")
+            }
+            return await handleBatchedCompletionsRequest(object, prompts: prompts, request: request)
+        }
+
+        let payload: [String: Any]
+        let downstreamStream: Bool
+        let requestedModel: String
+        do {
+            requestedModel = (object["model"] as? String) ?? "gpt-5"
+            let normalized = try convertLegacyCompletionsRequestToResponses(object)
+            payload = normalized.payload
+            downstreamStream = normalized.downstreamStream
+        } catch {
+            return jsonError(statusCode: 400, message: error.localizedDescription)
+        }
+
+        let upstream: UpstreamResponse
+        do {
+            upstream = try await sendOverCandidates(payload: payload, request: request)
+        } catch {
+            return jsonError(statusCode: 502, message: error.localizedDescription)
+        }
+
+        guard (200..<300).contains(upstream.statusCode) else {
+            return downstreamResponse(from: upstream)
+        }
+
+        if downstreamStream {
+            do {
+                let sse = try convertResponsesSSEToCompletionsSSE(upstream.body, fallbackModel: requestedModel)
+                return response(
+                    statusCode: 200,
+                    body: sse,
+                    baseHeaders: upstream.headers,
+                    defaultContentType: "text/event-stream; charset=utf-8"
+                )
+            } catch {
+                return jsonError(statusCode: 502, message: error.localizedDescription)
+            }
+        }
+
+        do {
+            let completed = try extractCompletedResponse(fromSSE: upstream.body)
+            let completion = convertCompletedResponseToLegacyCompletion(completed, fallbackModel: requestedModel)
+            return jsonResponse(statusCode: 200, object: completion, baseHeaders: upstream.headers)
+        } catch {
+            return jsonError(statusCode: 502, message: error.localizedDescription)
+        }
+    }
+
+    private func handleBatchedCompletionsRequest(
+        _ object: [String: Any],
+        prompts: [String],
+        request: HTTPRequest
+    ) async -> HTTPResponse {
+        let requestedModel = (object["model"] as? String) ?? "gpt-5"
+        var baseHeaders: [String: String] = [:]
+        var choices: [[String: Any]] = []
+        var usageBuckets: [[String: Any]] = []
+        var responseID = "cmpl_\(UUID().uuidString)"
+        var createdAt = Int(dateProvider.unixSecondsNow())
+        var resolvedModel = normalizeModelForClient(requestedModel)
+
+        for (index, prompt) in prompts.enumerated() {
+            var promptRequest = object
+            promptRequest["prompt"] = prompt
+
+            let normalized: (payload: [String: Any], downstreamStream: Bool)
+            do {
+                normalized = try convertLegacyCompletionsRequestToResponses(promptRequest)
+            } catch {
+                return jsonError(statusCode: 400, message: error.localizedDescription)
+            }
+
+            let upstream: UpstreamResponse
+            do {
+                upstream = try await sendOverCandidates(payload: normalized.payload, request: request)
+            } catch {
+                return jsonError(statusCode: 502, message: error.localizedDescription)
+            }
+
+            guard (200..<300).contains(upstream.statusCode) else {
+                return downstreamResponse(from: upstream)
+            }
+
+            let completed: [String: Any]
+            do {
+                completed = try extractCompletedResponse(fromSSE: upstream.body)
+            } catch {
+                return jsonError(statusCode: 502, message: error.localizedDescription)
+            }
+
+            if index == 0 {
+                baseHeaders = upstream.headers
+                responseID = (completed["id"] as? String) ?? responseID
+                createdAt = (completed["created_at"] as? Int) ?? createdAt
+                resolvedModel = normalizeModelForClient((completed["model"] as? String) ?? requestedModel)
+            }
+
+            let completion = convertCompletedResponseToLegacyCompletion(completed, fallbackModel: requestedModel)
+            if let choice = (completion["choices"] as? [[String: Any]])?.first {
+                var choice = choice
+                choice["index"] = index
+                choices.append(choice)
+            }
+            if let usage = completion["usage"] as? [String: Any] {
+                usageBuckets.append(usage)
+            }
+        }
+
+        var root: [String: Any] = [
+            "id": responseID,
+            "object": "text_completion",
+            "created": createdAt,
+            "model": resolvedModel,
+            "choices": choices
+        ]
+        if let usage = aggregateOpenAIUsage(usageBuckets) {
+            root["usage"] = usage
+        }
+
+        return jsonResponse(statusCode: 200, object: root, baseHeaders: baseHeaders)
     }
 
     private func sendOverCandidates(
@@ -706,6 +860,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         if !downstreamStream {
             payload["stream"] = true
         }
+        ensureRequiredInstructions(in: &payload)
 
         let currentReasoning = payload["reasoning"] as? [String: Any] ?? [:]
         if !currentReasoning.isEmpty {
@@ -735,10 +890,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     }
 
     private func convertChatRequestToResponses(_ request: [String: Any]) throws -> (payload: [String: Any], downstreamStream: Bool) {
-        if request["messages"] == nil, request["input"] != nil {
-            return try normalizeResponsesRequest(request)
-        }
-
         guard let rawModel = request["model"] as? String, !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.missing_model"))
         }
@@ -755,11 +906,14 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         payload.removeValue(forKey: "function_call")
         payload.removeValue(forKey: "reasoning_effort")
         if let requestedChoices = request["n"] {
-            guard let number = requestedChoices as? NSNumber, number.intValue == 1 else {
-                throw AppError.invalidData("Only n=1 is supported for chat completions.")
-            }
+            _ = try validatedSingleChoiceCount(requestedChoices, context: "chat completions")
             payload.removeValue(forKey: "n")
         }
+
+        let inferredInstructions = normalizedInstructionsValue(from: payload["instructions"])
+            ?? inferredInstructions(from: messages)
+        let shouldHoistDeveloperMessagesToInstructions = normalizedInstructionsValue(from: payload["instructions"]) == nil
+            && inferredInstructions != nil
 
         var input: [[String: Any]] = []
         for raw in messages {
@@ -769,6 +923,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
             guard let role = message["role"] as? String, !role.isEmpty else {
                 throw AppError.invalidData(L10n.tr("error.proxy_runtime.message_missing_role"))
+            }
+
+            if shouldHoistDeveloperMessagesToInstructions,
+               role == "system" || role == "developer" {
+                continue
             }
 
             if role == "tool" {
@@ -839,6 +998,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         payload["model"] = model
         payload["stream"] = true
         payload["input"] = input
+        payload["instructions"] = inferredInstructions ?? Self.defaultRequiredInstructions
 
         let rawTools = (request["tools"] as? [Any]) ?? legacyFunctionsAsTools(request["functions"])
         if let tools = rawTools {
@@ -874,6 +1034,166 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         return (payload, downstreamStream)
+    }
+
+    private func convertLegacyCompletionsRequestToResponses(_ request: [String: Any]) throws -> (payload: [String: Any], downstreamStream: Bool) {
+        guard request["prompt"] != nil else {
+            throw AppError.invalidData("Completions request missing prompt.")
+        }
+
+        guard let rawModel = request["model"] as? String, !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AppError.invalidData(L10n.tr("error.proxy_runtime.missing_model"))
+        }
+        let model = try mapClientModelToUpstream(rawModel)
+
+        let downstreamStream = (request["stream"] as? Bool) ?? false
+        var payload = request
+
+        try validateLegacyCompletionsCompatibility(request)
+        payload.removeValue(forKey: "echo")
+        payload.removeValue(forKey: "logprobs")
+        payload.removeValue(forKey: "logit_bias")
+        if request["suffix"] != nil {
+            throw AppError.invalidData("The suffix parameter is not supported for completions.")
+        }
+        if request["best_of"] != nil {
+            throw AppError.invalidData("The best_of parameter is not supported for completions.")
+        }
+
+        if let requestedChoices = request["n"] {
+            _ = try validatedSingleChoiceCount(requestedChoices, context: "completions")
+            payload.removeValue(forKey: "n")
+        }
+
+        let promptText = try normalizeLegacyPrompt(request["prompt"])
+        payload.removeValue(forKey: "prompt")
+        payload["model"] = model
+        payload["stream"] = true
+        payload["input"] = promptText
+        ensureRequiredInstructions(in: &payload)
+
+        if let maxTokens = payload.removeValue(forKey: "max_tokens"),
+           payload["max_output_tokens"] == nil {
+            payload["max_output_tokens"] = maxTokens
+        }
+
+        return (payload, downstreamStream)
+    }
+
+    private func validateLegacyCompletionsCompatibility(_ request: [String: Any]) throws {
+        if let enabled = try strictJSONBooleanValue(request["echo"], parameterName: "echo") {
+            if enabled {
+                throw AppError.invalidData("The echo parameter is not supported for completions.")
+            }
+        }
+
+        if let logprobs = request["logprobs"], !(logprobs is NSNull) {
+            throw AppError.invalidData("The logprobs parameter is not supported for completions.")
+        }
+
+        if let logitBias = request["logit_bias"], !(logitBias is NSNull) {
+            throw AppError.invalidData("The logit_bias parameter is not supported for completions.")
+        }
+    }
+
+    private func normalizeLegacyPrompt(_ value: Any?) throws -> String {
+        let prompts = try normalizedLegacyPrompts(value)
+        guard prompts.count <= 1 else {
+            throw AppError.invalidData("Only a single prompt is supported for streaming completions.")
+        }
+        return prompts.first ?? ""
+    }
+
+    private func normalizedLegacyPrompts(_ value: Any?) throws -> [String] {
+        guard let value else { return [] }
+
+        if let text = value as? String {
+            return [text]
+        }
+
+        if let items = value as? [Any] {
+            if items.allSatisfy({ $0 is NSNumber }) {
+                throw AppError.invalidData("Token array prompts are not supported for completions.")
+            }
+            if items.allSatisfy({ item in
+                guard let nested = item as? [Any] else { return false }
+                return nested.allSatisfy { $0 is NSNumber }
+            }) {
+                throw AppError.invalidData("Token array prompts are not supported for completions.")
+            }
+
+            let strings = items.compactMap { item -> String? in
+                if let text = item as? String {
+                    return text
+                }
+                return nil
+            }
+            guard strings.count == items.count else {
+                throw AppError.invalidData("Only string prompt values are supported for completions.")
+            }
+            return strings
+        }
+
+        throw AppError.invalidData("Unsupported prompt type for completions.")
+    }
+
+    private func validatedSingleChoiceCount(_ value: Any, context: String) throws -> Int {
+        guard let number = value as? NSNumber, !Self.isJSONBoolean(number) else {
+            throw AppError.invalidData("The n parameter must be an integer.")
+        }
+
+        let doubleValue = number.doubleValue
+        guard doubleValue.rounded(.towardZero) == doubleValue else {
+            throw AppError.invalidData("The n parameter must be an integer.")
+        }
+
+        let intValue = number.intValue
+        guard intValue == 1 else {
+            throw AppError.invalidData("Only n=1 is supported for \(context).")
+        }
+
+        return intValue
+    }
+
+    private func strictJSONBooleanValue(_ value: Any?, parameterName: String) throws -> Bool? {
+        guard let value else { return nil }
+        if value is NSNull { return nil }
+        guard let number = value as? NSNumber, Self.isJSONBoolean(number) else {
+            throw AppError.invalidData("The \(parameterName) parameter must be a boolean when provided.")
+        }
+        return number.boolValue
+    }
+
+    private static func isJSONBoolean(_ value: NSNumber) -> Bool {
+        CFGetTypeID(value) == CFBooleanGetTypeID()
+    }
+
+    private func ensureRequiredInstructions(in payload: inout [String: Any]) {
+        if let normalized = normalizedInstructionsValue(from: payload["instructions"]) {
+            payload["instructions"] = normalized
+            return
+        }
+
+        payload["instructions"] = Self.defaultRequiredInstructions
+    }
+
+    private func inferredInstructions(from messages: [Any]) -> String? {
+        let parts = messages.compactMap { raw -> String? in
+            guard let message = raw as? [String: Any],
+                  let role = message["role"] as? String,
+                  role == "system" || role == "developer" else {
+                return nil
+            }
+            return normalizedInstructionsValue(from: message["content"])
+        }
+
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func normalizedInstructionsValue(from value: Any?) -> String? {
+        let text = stringifyMessageContent(value).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private func legacyFunctionsAsTools(_ value: Any?) -> [Any]? {
@@ -1112,7 +1432,10 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             message["tool_calls"] = toolCalls
         }
 
-        let finishReason = toolCalls.isEmpty ? "stop" : "tool_calls"
+        let finishReason = openAIFinishReason(
+            from: response,
+            defaultReason: toolCalls.isEmpty ? "stop" : "tool_calls"
+        )
 
         var root: [String: Any] = [
             "id": id,
@@ -1124,6 +1447,33 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 "message": message,
                 "finish_reason": finishReason,
                 "native_finish_reason": finishReason
+            ]]
+        ]
+
+        if let usage = response["usage"] as? [String: Any] {
+            root["usage"] = buildOpenAIUsage(from: usage)
+        }
+
+        return root
+    }
+
+    private func convertCompletedResponseToLegacyCompletion(_ response: [String: Any], fallbackModel: String) -> [String: Any] {
+        let id = (response["id"] as? String) ?? "cmpl_\(UUID().uuidString)"
+        let created = (response["created_at"] as? Int) ?? Int(dateProvider.unixSecondsNow())
+        let model = normalizeModelForClient((response["model"] as? String) ?? fallbackModel)
+        let text = extractAssistantText(fromCompletedResponse: response)
+
+        let finishReason = openAIFinishReason(from: response, defaultReason: "stop")
+        var root: [String: Any] = [
+            "id": id,
+            "object": "text_completion",
+            "created": created,
+            "model": model,
+            "choices": [[
+                "text": text,
+                "index": 0,
+                "logprobs": NSNull(),
+                "finish_reason": finishReason
             ]]
         ]
 
@@ -1148,6 +1498,26 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         var lines = ""
         for event in events {
             let chunks = translateSSEEventToChatChunks(event, state: &state)
+            for chunk in chunks {
+                lines += "data: \(jsonString(chunk))\n\n"
+            }
+        }
+
+        lines += "data: [DONE]\n\n"
+        return Data(lines.utf8)
+    }
+
+    private func convertResponsesSSEToCompletionsSSE(_ sseData: Data, fallbackModel: String) throws -> Data {
+        let events = parseSSEEvents(from: sseData)
+        var state = CompletionStreamState(
+            responseID: "cmpl_\(UUID().uuidString)",
+            createdAt: Int(dateProvider.unixSecondsNow()),
+            model: normalizeModelForClient(fallbackModel)
+        )
+
+        var lines = ""
+        for event in events {
+            let chunks = translateSSEEventToCompletionChunks(event, state: &state)
             for chunk in chunks {
                 lines += "data: \(jsonString(chunk))\n\n"
             }
@@ -1307,7 +1677,10 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             ]
 
         case "response.completed":
-            let finishReason = state.functionCallIndex >= 0 ? "tool_calls" : "stop"
+            let finishReason = openAIFinishReason(
+                from: parsed["response"] as? [String: Any],
+                defaultReason: state.functionCallIndex >= 0 ? "tool_calls" : "stop"
+            )
             return [
                 buildChatChunk(
                     state: state,
@@ -1347,6 +1720,156 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         return chunk
+    }
+
+    private func translateSSEEventToCompletionChunks(_ event: SSEEvent, state: inout CompletionStreamState) -> [[String: Any]] {
+        guard event.data != "[DONE]",
+              let payloadData = event.data.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+              let kind = parsed["type"] as? String else {
+            return []
+        }
+
+        switch kind {
+        case "response.created":
+            if let response = parsed["response"] as? [String: Any] {
+                state.responseID = (response["id"] as? String) ?? state.responseID
+                state.createdAt = (response["created_at"] as? Int) ?? state.createdAt
+                state.model = normalizeModelForClient((response["model"] as? String) ?? state.model)
+            }
+            return []
+
+        case "response.output_text.delta":
+            let delta = (parsed["delta"] as? String) ?? ""
+            guard !delta.isEmpty else { return [] }
+            return [
+                buildCompletionChunk(
+                    state: state,
+                    text: delta,
+                    finishReason: nil,
+                    usage: ((parsed["response"] as? [String: Any])?["usage"] as? [String: Any])
+                )
+            ]
+
+        case "response.completed":
+            let finishReason = openAIFinishReason(
+                from: parsed["response"] as? [String: Any],
+                defaultReason: "stop"
+            )
+            return [
+                buildCompletionChunk(
+                    state: state,
+                    text: "",
+                    finishReason: finishReason,
+                    usage: ((parsed["response"] as? [String: Any])?["usage"] as? [String: Any])
+                )
+            ]
+
+        default:
+            return []
+        }
+    }
+
+    private func buildCompletionChunk(
+        state: CompletionStreamState,
+        text: String,
+        finishReason: String?,
+        usage: [String: Any]?
+    ) -> [String: Any] {
+        let finishValue: Any = finishReason ?? NSNull()
+        var chunk: [String: Any] = [
+            "id": state.responseID,
+            "object": "text_completion",
+            "created": max(0, state.createdAt),
+            "model": state.model,
+            "choices": [[
+                "text": text,
+                "index": 0,
+                "logprobs": NSNull(),
+                "finish_reason": finishValue
+            ]]
+        ]
+
+        if let usage {
+            chunk["usage"] = buildOpenAIUsage(from: usage)
+        }
+
+        return chunk
+    }
+
+    private func aggregateOpenAIUsage(_ usages: [[String: Any]]) -> [String: Any]? {
+        guard !usages.isEmpty else { return nil }
+
+        var promptTokens = 0
+        var completionTokens = 0
+        var totalTokens = 0
+        var cachedTokens = 0
+        var reasoningTokens = 0
+        var sawPrompt = false
+        var sawCompletion = false
+        var sawTotal = false
+        var sawCached = false
+        var sawReasoning = false
+
+        for usage in usages {
+            if let value = usage["prompt_tokens"] as? NSNumber {
+                promptTokens += value.intValue
+                sawPrompt = true
+            }
+            if let value = usage["completion_tokens"] as? NSNumber {
+                completionTokens += value.intValue
+                sawCompletion = true
+            }
+            if let value = usage["total_tokens"] as? NSNumber {
+                totalTokens += value.intValue
+                sawTotal = true
+            }
+            if let details = usage["prompt_tokens_details"] as? [String: Any],
+               let value = details["cached_tokens"] as? NSNumber {
+                cachedTokens += value.intValue
+                sawCached = true
+            }
+            if let details = usage["completion_tokens_details"] as? [String: Any],
+               let value = details["reasoning_tokens"] as? NSNumber {
+                reasoningTokens += value.intValue
+                sawReasoning = true
+            }
+        }
+
+        var root: [String: Any] = [:]
+        if sawPrompt { root["prompt_tokens"] = promptTokens }
+        if sawCompletion { root["completion_tokens"] = completionTokens }
+        if sawTotal { root["total_tokens"] = totalTokens }
+        if sawCached { root["prompt_tokens_details"] = ["cached_tokens": cachedTokens] }
+        if sawReasoning { root["completion_tokens_details"] = ["reasoning_tokens": reasoningTokens] }
+        return root.isEmpty ? nil : root
+    }
+
+    private func openAIFinishReason(from response: [String: Any]?, defaultReason: String) -> String {
+        guard let response else { return defaultReason }
+
+        if let incompleteDetails = response["incomplete_details"] as? [String: Any],
+           let reason = (incompleteDetails["reason"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+            switch reason {
+            case "max_output_tokens", "max_tokens":
+                return "length"
+            case "content_filter":
+                return "content_filter"
+            default:
+                break
+            }
+        }
+
+        if let status = (response["status"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           status == "incomplete" {
+            return "length"
+        }
+
+        return defaultReason
     }
 
     private func extractAssistantText(fromCompletedResponse response: [String: Any]) -> String {
@@ -1894,4 +2417,10 @@ private struct ChatStreamState {
     var functionCallIndex: Int
     var hasReceivedArgumentsDelta: Bool
     var hasToolCallAnnounced: Bool
+}
+
+private struct CompletionStreamState {
+    var responseID: String
+    var createdAt: Int
+    var model: String
 }

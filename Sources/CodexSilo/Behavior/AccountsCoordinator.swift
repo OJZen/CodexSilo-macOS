@@ -19,6 +19,13 @@ actor AccountsCoordinator {
         }
     }
 
+    private struct RefreshAccountResult {
+        let account: StoredAccount
+        let attemptedRefresh: Bool
+        let didRefreshSucceed: Bool
+        let transientFailureReason: String?
+    }
+
     private enum UsageRefreshPolicy {
         static let minimumRefreshIntervalSeconds: Int64 = 25
 
@@ -385,40 +392,62 @@ actor AccountsCoordinator {
     }
 
     func refreshAllUsage() async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .parallel, force: false, onPartialUpdate: nil)
+        try await refreshAllUsageResult(using: .parallel, force: false, onPartialUpdate: nil).accounts
     }
 
     func refreshAllUsageSerially() async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .serial, force: false, onPartialUpdate: nil)
+        try await refreshAllUsageResult(using: .serial, force: false, onPartialUpdate: nil).accounts
     }
 
     func refreshAllUsage(force: Bool) async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .parallel, force: force, onPartialUpdate: nil)
+        try await refreshAllUsageResult(using: .parallel, force: force, onPartialUpdate: nil).accounts
     }
 
     func refreshAllUsageSerially(force: Bool) async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .serial, force: force, onPartialUpdate: nil)
+        try await refreshAllUsageResult(using: .serial, force: force, onPartialUpdate: nil).accounts
     }
 
     func refreshAllUsage(
         force: Bool,
         onPartialUpdate: @escaping @Sendable ([AccountSummary]) async -> Void
     ) async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .parallel, force: force, onPartialUpdate: onPartialUpdate)
+        try await refreshAllUsageResult(using: .parallel, force: force, onPartialUpdate: onPartialUpdate).accounts
     }
 
     func refreshAllUsageSerially(
         force: Bool,
         onPartialUpdate: @escaping @Sendable ([AccountSummary]) async -> Void
     ) async throws -> [AccountSummary] {
-        try await refreshAllUsage(using: .serial, force: force, onPartialUpdate: onPartialUpdate)
+        try await refreshAllUsageResult(using: .serial, force: force, onPartialUpdate: onPartialUpdate).accounts
     }
 
-    private func refreshAllUsage(
+    func refreshAllUsageResult(force: Bool) async throws -> AccountsRefreshResult {
+        try await refreshAllUsageResult(using: .parallel, force: force, onPartialUpdate: nil)
+    }
+
+    func refreshAllUsageSeriallyResult(force: Bool) async throws -> AccountsRefreshResult {
+        try await refreshAllUsageResult(using: .serial, force: force, onPartialUpdate: nil)
+    }
+
+    func refreshAllUsageResult(
+        force: Bool,
+        onPartialUpdate: @escaping @Sendable ([AccountSummary]) async -> Void
+    ) async throws -> AccountsRefreshResult {
+        try await refreshAllUsageResult(using: .parallel, force: force, onPartialUpdate: onPartialUpdate)
+    }
+
+    func refreshAllUsageSeriallyResult(
+        force: Bool,
+        onPartialUpdate: @escaping @Sendable ([AccountSummary]) async -> Void
+    ) async throws -> AccountsRefreshResult {
+        try await refreshAllUsageResult(using: .serial, force: force, onPartialUpdate: onPartialUpdate)
+    }
+
+    private func refreshAllUsageResult(
         using mode: UsageRefreshExecutionMode,
         force: Bool,
         onPartialUpdate: (@Sendable ([AccountSummary]) async -> Void)?
-    ) async throws -> [AccountSummary] {
+    ) async throws -> AccountsRefreshResult {
         let now = dateProvider.unixSecondsNow()
         let snapshot = try storeRepository.loadStore()
         let authRepository = self.authRepository
@@ -428,9 +457,12 @@ actor AccountsCoordinator {
 
         var latest = snapshot
         var didChangeStore = false
+        var transientFailureReasons: [String] = []
+        var attemptedRefreshCount = 0
+        var successfulRefreshCount = 0
         switch mode {
         case .parallel:
-            try await withThrowingTaskGroup(of: StoredAccount.self, returning: Void.self) { group in
+            try await withThrowingTaskGroup(of: RefreshAccountResult.self, returning: Void.self) { group in
                 for account in snapshot.accounts {
                     group.addTask {
                         await Self.refreshAccount(
@@ -443,7 +475,17 @@ actor AccountsCoordinator {
                     }
                 }
                 for try await refreshed in group {
-                    let didChange = Self.mergeRefreshedAccount(refreshed, into: &latest)
+                    if refreshed.attemptedRefresh {
+                        attemptedRefreshCount += 1
+                    }
+                    if refreshed.didRefreshSucceed {
+                        successfulRefreshCount += 1
+                    }
+                    if let reason = refreshed.transientFailureReason {
+                        transientFailureReasons.append(reason)
+                    }
+
+                    let didChange = Self.mergeRefreshedAccount(refreshed.account, into: &latest)
                     guard didChange else { continue }
                     didChangeStore = true
                     if shouldPersistPartialUpdates {
@@ -468,7 +510,17 @@ actor AccountsCoordinator {
                     authRepository: authRepository,
                     usageService: usageService
                 )
-                let didChange = Self.mergeRefreshedAccount(refreshed, into: &latest)
+                if refreshed.attemptedRefresh {
+                    attemptedRefreshCount += 1
+                }
+                if refreshed.didRefreshSucceed {
+                    successfulRefreshCount += 1
+                }
+                if let reason = refreshed.transientFailureReason {
+                    transientFailureReasons.append(reason)
+                }
+
+                let didChange = Self.mergeRefreshedAccount(refreshed.account, into: &latest)
                 guard didChange else { continue }
                 didChangeStore = true
                 if shouldPersistPartialUpdates {
@@ -494,7 +546,14 @@ actor AccountsCoordinator {
             currentVariantKey: currentAuthSelection.variantKey
         )
         cacheAccountsList(store: latest, currentAuthSelection: currentAuthSelection, summaries: summaries)
-        return summaries
+        return AccountsRefreshResult(
+            accounts: summaries,
+            failure: Self.refreshFailure(
+                reasons: transientFailureReasons,
+                attemptedRefreshCount: attemptedRefreshCount,
+                successfulRefreshCount: successfulRefreshCount
+            )
+        )
     }
 
     private static func mergeRefreshedAccount(
@@ -535,10 +594,15 @@ actor AccountsCoordinator {
         forceRefresh: Bool,
         authRepository: AuthRepository,
         usageService: UsageService
-    ) async -> StoredAccount {
+    ) async -> RefreshAccountResult {
         var account = account
         guard forceRefresh || UsageRefreshPolicy.shouldRefresh(account.usage, now: now) else {
-            return account
+            return RefreshAccountResult(
+                account: account,
+                attemptedRefresh: false,
+                didRefreshSucceed: false,
+                transientFailureReason: nil
+            )
         }
 
         do {
@@ -554,12 +618,133 @@ actor AccountsCoordinator {
                 account.teamName = teamName
             }
             account.email = extracted.email ?? account.email
+            account.updatedAt = now
+            return RefreshAccountResult(
+                account: account,
+                attemptedRefresh: true,
+                didRefreshSucceed: true,
+                transientFailureReason: nil
+            )
         } catch {
+            if let transientFailureReason = transientRefreshFailureReason(for: error) {
+                account.usageError = nil
+                account.updatedAt = now
+                return RefreshAccountResult(
+                    account: account,
+                    attemptedRefresh: true,
+                    didRefreshSucceed: false,
+                    transientFailureReason: transientFailureReason
+                )
+            }
+
             account.usageError = error.localizedDescription
+            account.updatedAt = now
+            return RefreshAccountResult(
+                account: account,
+                attemptedRefresh: true,
+                didRefreshSucceed: false,
+                transientFailureReason: nil
+            )
+        }
+    }
+
+    private static func refreshFailure(
+        reasons: [String],
+        attemptedRefreshCount: Int,
+        successfulRefreshCount: Int
+    ) -> AccountsRefreshFailure? {
+        guard attemptedRefreshCount > 0,
+              let reason = primaryTransientRefreshFailureReason(from: reasons) else {
+            return nil
         }
 
-        account.updatedAt = now
-        return account
+        return successfulRefreshCount == 0
+            ? .complete(reason: reason)
+            : .partial(reason: reason)
+    }
+
+    private static func primaryTransientRefreshFailureReason(from reasons: [String]) -> String? {
+        var seen = Set<String>()
+        for rawReason in reasons {
+            let reason = rawReason.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !reason.isEmpty, !seen.contains(reason) else { continue }
+            seen.insert(reason)
+            return reason
+        }
+        return nil
+    }
+
+    private static func transientRefreshFailureReason(for error: Error) -> String? {
+        if let urlError = error as? URLError,
+           isTransientNetworkError(urlError) {
+            return urlError.localizedDescription
+        }
+
+        guard let appError = error as? AppError,
+              case .network(let message) = appError,
+              isTransientNetworkMessage(message) else {
+            return nil
+        }
+
+        return message
+    }
+
+    private static func isTransientNetworkError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut,
+             .notConnectedToInternet,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed,
+             .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isTransientNetworkMessage(_ message: String) -> Bool {
+        if message.contains("-> 401:") || message.contains("-> 403:") || message.contains("-> 404:")
+            || message.contains("-> 429:") || message.contains("-> 500:") || message.contains("-> 502:")
+            || message.contains("-> 503:") || message.contains("-> 504:") {
+            return false
+        }
+
+        let lowercased = message.lowercased()
+        let englishIndicators = [
+            "timed out",
+            "timeout",
+            "could not connect",
+            "cannot connect",
+            "not connected to the internet",
+            "internet connection appears to be offline",
+            "network connection was lost",
+            "dns lookup failed",
+            "hostname could not be found",
+            "secure connection",
+            "socket is not connected"
+        ]
+        if englishIndicators.contains(where: { lowercased.contains($0) }) {
+            return true
+        }
+
+        let localizedIndicators = [
+            "超时",
+            "无法连接",
+            "不能连接",
+            "未连接互联网",
+            "网络连接已丢失",
+            "网络连接丢失",
+            "离线",
+            "主机",
+            "域名",
+            "安全连接"
+        ]
+        return localizedIndicators.contains(where: { message.contains($0) })
     }
 
     private static func reconcileStoredAccountMetadata(

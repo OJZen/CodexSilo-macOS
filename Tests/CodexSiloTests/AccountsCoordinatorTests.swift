@@ -940,6 +940,151 @@ final class AccountsCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountsPageModelShowsGlobalRefreshFailureNoticeForTransientNetworkErrors() async throws {
+        let now: Int64 = 1_763_216_000
+        let existingUsage = UsageSnapshot(
+            fetchedAt: now - 300,
+            planType: "pro",
+            fiveHour: UsageWindow(usedPercent: 30, windowSeconds: 18_000, resetAt: now + 1_800),
+            oneWeek: UsageWindow(usedPercent: 45, windowSeconds: 604_800, resetAt: now + 86_400),
+            credits: nil
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Network Retry",
+                        email: "network@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: existingUsage,
+                        usageError: "Old inline error"
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: StubAuthRepository(),
+            usageService: ResultUsageService(
+                results: [
+                    "account-1": .failure(AppError.network("The request timed out."))
+                ]
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+        let model = AccountsPageModel(coordinator: coordinator)
+
+        await model.loadIfNeeded()
+        await model.refreshUsage()
+
+        guard case .content(let accounts) = model.state else {
+            return XCTFail("Expected content state after refresh")
+        }
+        XCTAssertEqual(accounts.count, 1)
+        XCTAssertNil(accounts[0].usageError)
+        XCTAssertEqual(
+            model.notice,
+            NoticeMessage(
+                style: .error,
+                text: L10n.tr("accounts.notice.refresh_failed_format", "The request timed out.")
+            )
+        )
+    }
+
+    func testRefreshAllUsageResultMarksPartialTransientFailureWithoutInlineErrors() async throws {
+        let now: Int64 = 1_763_216_000
+        let freshUsage = UsageSnapshot(
+            fetchedAt: now,
+            planType: "pro",
+            fiveHour: UsageWindow(usedPercent: 15, windowSeconds: 18_000, resetAt: now + 1_800),
+            oneWeek: UsageWindow(usedPercent: 20, windowSeconds: 604_800, resetAt: now + 86_400),
+            credits: nil
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Healthy",
+                        email: "healthy@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    ),
+                    StoredAccount(
+                        id: "acct-2",
+                        label: "Transient Failure",
+                        email: "failure@example.com",
+                        accountID: "account-2",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-2")]),
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: "Old inline error"
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: MultiAccountAuthRepository(
+                extractedByAccountID: [
+                    "account-1": ExtractedAuth(
+                        accountID: "account-1",
+                        accessToken: "token-1",
+                        email: "healthy@example.com",
+                        planType: "pro",
+                        teamName: nil
+                    ),
+                    "account-2": ExtractedAuth(
+                        accountID: "account-2",
+                        accessToken: "token-2",
+                        email: "failure@example.com",
+                        planType: "pro",
+                        teamName: nil
+                    )
+                ],
+                currentAccountID: nil
+            ),
+            usageService: ResultUsageService(
+                results: [
+                    "account-1": .success(freshUsage),
+                    "account-2": .failure(AppError.network("The Internet connection appears to be offline."))
+                ]
+            ),
+            chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let result = try await coordinator.refreshAllUsageResult(force: true)
+
+        XCTAssertEqual(
+            result.failure,
+            .partial(reason: "The Internet connection appears to be offline.")
+        )
+        XCTAssertEqual(result.accounts.count, 2)
+        XCTAssertNil(result.accounts.first(where: { $0.accountID == "account-2" })?.usageError)
+        XCTAssertNil(try storeRepository.loadStore().accounts.first(where: { $0.accountID == "account-2" })?.usageError)
+    }
+
+    @MainActor
     func testTrayMenuRefreshNowReusesPulledAccountsWithoutSecondListPass() async {
         let now: Int64 = 1_763_216_000
         let authRepository = CountingMultiAccountAuthRepository(
@@ -1278,6 +1423,70 @@ final class AccountsCoordinatorTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(usageService.callCount, baselineUsageCallCount + 1)
         XCTAssertEqual(model.accounts.first?.usage?.fiveHour?.usedPercent, 25)
+    }
+
+    @MainActor
+    func testTrayMenuPresentationTriggersUsageRefresh() async {
+        let now: Int64 = 1_763_216_000
+        let usageService = CountingUsageService(
+            result: UsageSnapshot(
+                fetchedAt: now,
+                planType: "pro",
+                fiveHour: UsageWindow(usedPercent: 15, windowSeconds: 18_000, resetAt: nil),
+                oneWeek: nil,
+                credits: nil
+            )
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Tray",
+                        email: "tray@example.com",
+                        accountID: "account-1",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["account_id": .string("account-1")]),
+                        addedAt: now,
+                        updatedAt: now - 100,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ],
+                settings: .defaultValue
+            )
+        )
+        let model = TrayMenuModel(
+            accountsCoordinator: AccountsCoordinator(
+                storeRepository: storeRepository,
+                authRepository: StubAuthRepository(),
+                usageService: usageService,
+                chatGPTOAuthLoginService: StubChatGPTOAuthLoginService(),
+                dateProvider: FixedDateProvider(now: now)
+            ),
+            settingsCoordinator: SettingsCoordinator(
+                storeRepository: storeRepository,
+                launchAtStartupService: StubLaunchAtStartupService()
+            ),
+            cloudSyncService: nil,
+            currentAccountSelectionSyncService: nil,
+            backgroundRefreshPolicy: .init(
+                initialRefreshDelay: .seconds(3_600),
+                cloudReconciliationInterval: .seconds(3_600),
+                usageRefreshInterval: .seconds(3_600),
+                refreshUsageOnRecurringTick: false,
+                cloudSyncMode: .disabled,
+                applyRemoteSelectionSwitchEffects: false
+            ),
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        await model.handleTrayMenuPresentation()
+
+        XCTAssertEqual(usageService.callCount, 1)
+        XCTAssertEqual(model.accounts.first?.usage?.fiveHour?.usedPercent, 15)
     }
 
     @MainActor
@@ -2307,6 +2516,22 @@ private final class AccountIDUsageService: UsageService, @unchecked Sendable {
     }
 }
 
+private final class ResultUsageService: UsageService, @unchecked Sendable {
+    private let results: [String: Result<UsageSnapshot, Error>]
+
+    init(results: [String: Result<UsageSnapshot, Error>]) {
+        self.results = results
+    }
+
+    func fetchUsage(accessToken: String, accountID: String) async throws -> UsageSnapshot {
+        _ = accessToken
+        guard let result = results[accountID] else {
+            throw AppError.invalidData("Missing usage result for \(accountID)")
+        }
+        return try result.get()
+    }
+}
+
 private struct FixedDateProvider: DateProviding {
     let now: Int64
 
@@ -2346,9 +2571,9 @@ private final class RecordingWorkspaceMetadataService: WorkspaceMetadataService,
 private final class StubAccountsManualRefreshService: AccountsManualRefreshServiceProtocol, @unchecked Sendable {
     func performManualRefresh(
         onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
-    ) async throws -> [AccountSummary] {
+    ) async throws -> AccountsRefreshResult {
         _ = onPartialUpdate
-        return []
+        return AccountsRefreshResult(accounts: [], failure: nil)
     }
 }
 
@@ -2357,10 +2582,10 @@ private final class CountingAccountsManualRefreshService: AccountsManualRefreshS
 
     func performManualRefresh(
         onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
-    ) async throws -> [AccountSummary] {
+    ) async throws -> AccountsRefreshResult {
         _ = onPartialUpdate
         callCount += 1
-        return []
+        return AccountsRefreshResult(accounts: [], failure: nil)
     }
 }
 
@@ -2481,12 +2706,12 @@ private final class BlockingAccountsManualRefreshService: AccountsManualRefreshS
 
     func performManualRefresh(
         onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
-    ) async throws -> [AccountSummary] {
+    ) async throws -> AccountsRefreshResult {
         _ = onPartialUpdate
         await callCounter.increment()
         onStart()
         await gate.wait()
-        return []
+        return AccountsRefreshResult(accounts: [], failure: nil)
     }
 }
 

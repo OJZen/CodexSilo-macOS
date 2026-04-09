@@ -150,6 +150,11 @@ private struct TrayMenuContentView: View {
         }
         .padding(10)
         .frame(width: 312)
+        .onAppear {
+            Task {
+                await trayModel.handleTrayMenuPresentation()
+            }
+        }
     }
 
     private func trayActionButton(

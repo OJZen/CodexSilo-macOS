@@ -85,14 +85,14 @@ protocol CurrentAccountSelectionSyncServiceProtocol: Sendable {
 
 @MainActor
 protocol AccountsManualRefreshServiceProtocol: AnyObject {
-    func performManualRefresh() async throws -> [AccountSummary]
+    func performManualRefresh() async throws -> AccountsRefreshResult
     func performManualRefresh(
         onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
-    ) async throws -> [AccountSummary]
+    ) async throws -> AccountsRefreshResult
 }
 
 extension AccountsManualRefreshServiceProtocol {
-    func performManualRefresh() async throws -> [AccountSummary] {
+    func performManualRefresh() async throws -> AccountsRefreshResult {
         try await performManualRefresh(onPartialUpdate: { _ in })
     }
 }

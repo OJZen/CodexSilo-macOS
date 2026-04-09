@@ -292,6 +292,16 @@ struct AccountSummary: Equatable, Identifiable {
     }
 }
 
+enum AccountsRefreshFailure: Equatable {
+    case partial(reason: String)
+    case complete(reason: String)
+}
+
+struct AccountsRefreshResult: Equatable {
+    var accounts: [AccountSummary]
+    var failure: AccountsRefreshFailure?
+}
+
 struct AccountConfigurationDraft: Equatable, Identifiable {
     var id: String = UUID().uuidString
     var storedAccountID: String?

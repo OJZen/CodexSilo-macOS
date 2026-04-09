@@ -171,6 +171,10 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         }
     }
 
+    func handleTrayMenuPresentation() async {
+        await refreshNow(forceUsageRefresh: true)
+    }
+
     func reconcileCloudStateNow() async {
         do {
             let latestAccounts = try await executeCloudReconciliation(failOnCloudSyncError: false)
@@ -214,7 +218,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
 
     func performManualRefresh(
         onPartialUpdate: @escaping @MainActor ([AccountSummary]) -> Void
-    ) async throws -> [AccountSummary] {
+    ) async throws -> AccountsRefreshResult {
         beginAccountsRefreshActivity()
         defer { endAccountsRefreshActivity() }
         let settings = try await settingsCoordinator.currentSettings()
@@ -230,7 +234,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         )
 
         let prefersSerialUsageRefresh = backgroundRefreshPolicy.cloudSyncMode == .pullRemoteAccounts
-        var latestAccounts = try await refreshLocalAccounts(
+        var refreshResult = try await refreshLocalAccounts(
             forceUsageRefresh: syncDecision.shouldRefreshLocalUsage,
             prefersSerialUsageRefresh: prefersSerialUsageRefresh,
             bypassUsageThrottle: syncDecision.shouldRefreshLocalUsage,
@@ -242,13 +246,13 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         }
         let selectionPullResult = try await reconcileCurrentAccountSelection(failOnError: false)
         if selectionPullResult.didUpdateSelection {
-            latestAccounts = try await accountsCoordinator.listAccounts()
+            refreshResult.accounts = try await accountsCoordinator.listAccounts()
         }
 
-        accounts = latestAccounts
+        accounts = refreshResult.accounts
         scheduleWorkspaceMetadataRefresh(forceRemoteCheck: true)
         notice = nil
-        return latestAccounts
+        return refreshResult
     }
 
     func acceptLocalAccountsSnapshot(_ accounts: [AccountSummary]) {
@@ -317,7 +321,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
             prefersSerialUsageRefresh: prefersSerialUsageRefresh,
             bypassUsageThrottle: false,
             onPartialUpdate: nil
-        )
+        ).accounts
 
         if syncDecision.shouldPushLocalSnapshot {
             try await pushCloudAccountsIfNeeded(failOnError: failOnCloudSyncError)
@@ -352,15 +356,15 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         prefersSerialUsageRefresh: Bool,
         bypassUsageThrottle: Bool,
         onPartialUpdate: (@MainActor ([AccountSummary]) -> Void)?
-    ) async throws -> [AccountSummary] {
-        var latestAccounts: [AccountSummary]?
+    ) async throws -> AccountsRefreshResult {
+        var refreshResult: AccountsRefreshResult?
 
         if forceUsageRefresh {
             beginRemoteUsageRefreshActivity()
             defer { endRemoteUsageRefreshActivity() }
 
             if prefersSerialUsageRefresh {
-                latestAccounts = try await accountsCoordinator.refreshAllUsageSerially(
+                refreshResult = try await accountsCoordinator.refreshAllUsageSeriallyResult(
                     force: bypassUsageThrottle,
                     onPartialUpdate: { accounts in
                         guard let onPartialUpdate else { return }
@@ -370,7 +374,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                     }
                 )
             } else {
-                latestAccounts = try await accountsCoordinator.refreshAllUsage(
+                refreshResult = try await accountsCoordinator.refreshAllUsageResult(
                     force: bypassUsageThrottle,
                     onPartialUpdate: { accounts in
                         guard let onPartialUpdate else { return }
@@ -382,13 +386,23 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
             }
             if autoSmartSwitchEnabled,
                try await accountsCoordinator.autoSmartSwitchIfNeeded() != nil {
-                latestAccounts = try await accountsCoordinator.listAccounts()
+                guard var refreshResult else {
+                    return AccountsRefreshResult(
+                        accounts: try await accountsCoordinator.listAccounts(),
+                        failure: nil
+                    )
+                }
+                refreshResult.accounts = try await accountsCoordinator.listAccounts()
+                return refreshResult
             }
         }
-        if let latestAccounts {
-            return latestAccounts
+        if let refreshResult {
+            return refreshResult
         }
-        return try await accountsCoordinator.listAccounts()
+        return AccountsRefreshResult(
+            accounts: try await accountsCoordinator.listAccounts(),
+            failure: nil
+        )
     }
 
     private func pullCloudAccountsIfNeeded(

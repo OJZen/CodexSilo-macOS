@@ -237,6 +237,20 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         modelsByAPIKeyHeader.setValue(started.apiKey ?? "", forHTTPHeaderField: "x-api-key")
         let (_, modelsByAPIKeyHeaderResponse) = try await URLSession.shared.data(for: modelsByAPIKeyHeader)
         XCTAssertEqual((modelsByAPIKeyHeaderResponse as? HTTPURLResponse)?.statusCode, 200)
+
+        let modelAliases = [
+            "/models",
+            "/v1/models",
+            "/v1/v1/models",
+            "/codex/v1/models"
+        ]
+        for route in modelAliases {
+            let aliasURL = URL(string: "http://127.0.0.1:\(port)\(route)")!
+            var aliasRequest = URLRequest(url: aliasURL)
+            aliasRequest.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+            let (_, aliasResponse) = try await URLSession.shared.data(for: aliasRequest)
+            XCTAssertEqual((aliasResponse as? HTTPURLResponse)?.statusCode, 200, route)
+        }
     }
 
     func testStartKeepsLegacyPersistedAPIKey() async throws {
@@ -402,18 +416,65 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             Task { _ = await runtime.stop() }
         }
 
+        let cases: [Any] = [2, 1.5, true]
+        for choiceCount in cases {
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "model": "gpt-5",
+                "n": choiceCount,
+                "messages": [
+                    [
+                        "role": "user",
+                        "content": "hello"
+                    ]
+                ]
+            ])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+
+            let json = try parseJSON(data)
+            let error = json["error"] as? [String: Any]
+            XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+        }
+    }
+
+    func testChatCompletionsRejectsResponsesStyleInputWithoutMessages() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: MockStoreRepository(),
+            authRepository: MockAuthRepository()
+        )
+
+        let port = Int.random(in: 42001...47000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
         let url = URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": "gpt-5",
-            "n": 2,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": "hello"
-                ]
-            ]
+            "input": "hello from responses"
         ])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
@@ -424,6 +485,238 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         let json = try parseJSON(data)
         let error = json["error"] as? [String: Any]
         XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+    }
+
+    func testCompletionsRejectsUnsupportedChoiceCount() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: MockStoreRepository(),
+            authRepository: MockAuthRepository()
+        )
+
+        let port = Int.random(in: 42001...47000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let cases: [Any] = [2, 1.5, true]
+        for choiceCount in cases {
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/completions")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "n": choiceCount
+            ])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+
+            let json = try parseJSON(data)
+            let error = json["error"] as? [String: Any]
+            XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+        }
+    }
+
+    func testCompletionsRejectsResponsesStyleInputWithoutPrompt() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: MockStoreRepository(),
+            authRepository: MockAuthRepository()
+        )
+
+        let port = Int.random(in: 42001...47000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(port)/v1/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5",
+            "input": "hello from responses"
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+
+        let json = try parseJSON(data)
+        let error = json["error"] as? [String: Any]
+        XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+        XCTAssertEqual(error?["message"] as? String, "Completions request missing prompt.")
+    }
+
+    func testCompletionsRejectsUnsupportedLegacyParameters() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: MockStoreRepository(),
+            authRepository: MockAuthRepository()
+        )
+
+        let port = Int.random(in: 42001...47000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let cases: [[String: Any]] = [
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "suffix": "world"
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "best_of": 2
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "echo": true
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "echo": 0
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "logprobs": 2
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": "hello",
+                "logit_bias": [
+                    "42": 10
+                ]
+            ]
+        ]
+
+        for body in cases {
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/completions")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+
+            let json = try parseJSON(data)
+            let error = json["error"] as? [String: Any]
+            XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+        }
+    }
+
+    func testCompletionsRejectsTokenArrayPromptShapes() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: MockStoreRepository(),
+            authRepository: MockAuthRepository()
+        )
+
+        let port = Int.random(in: 42001...47000)
+        let started = try await runtime.start(preferredPort: port)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let cases: [[String: Any]] = [
+            [
+                "model": "gpt-5",
+                "prompt": [1, 2, 3]
+            ],
+            [
+                "model": "gpt-5",
+                "prompt": [
+                    [1, 2, 3],
+                    [4, 5, 6]
+                ]
+            ]
+        ]
+
+        for body in cases {
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/completions")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 400)
+
+            let json = try parseJSON(data)
+            let error = json["error"] as? [String: Any]
+            XCTAssertEqual(error?["type"] as? String, "invalid_request_error")
+            XCTAssertEqual(
+                error?["message"] as? String,
+                "Token array prompts are not supported for completions."
+            )
+        }
     }
 
     func testChatCompletionsProxyForwardsToConfiguredUpstream() async throws {
@@ -508,6 +801,10 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
             "service_tier": "auto",
             "messages": [
                 [
+                    "role": "system",
+                    "content": "Be concise."
+                ],
+                [
                     "role": "user",
                     "content": "hello"
                 ]
@@ -543,10 +840,295 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertEqual(upstreamBody["temperature"] as? Double, 0.2)
         XCTAssertEqual(upstreamBody["top_p"] as? Double, 0.9)
         XCTAssertEqual(upstreamBody["max_output_tokens"] as? Int, 256)
+        XCTAssertEqual(upstreamBody["instructions"] as? String, "Be concise.")
         XCTAssertEqual((upstreamBody["metadata"] as? [String: Any])?["source"] as? String, "test-suite")
         XCTAssertEqual(upstreamBody["service_tier"] as? String, "auto")
         XCTAssertNil(upstreamBody["messages"])
-        XCTAssertNotNil(upstreamBody["input"] as? [[String: Any]])
+        let input = try XCTUnwrap(upstreamBody["input"] as? [[String: Any]])
+        XCTAssertEqual(input.count, 1)
+        XCTAssertEqual(input.first?["role"] as? String, "user")
+    }
+
+    func testCompletionsProxyForwardsToConfiguredUpstream() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 47001...52000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+                body: Data("""
+                event: response.completed
+                data: {"type":"response.completed","response":{"id":"resp_legacy","created_at":123,"model":"gpt-5.4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"legacy hello"}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}
+
+                """.utf8)
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let storeRepo = StaticStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "proxy@example.com",
+                        accountID: "acct",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["tokens": .object(["access_token": .string("token"), "account_id": .string("acct"), "id_token": .string("id-token")])]),
+                        addedAt: 0,
+                        updatedAt: 0,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepo,
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/completions?trace=legacy")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5-4",
+            "prompt": "legacy prompt",
+            "temperature": 0.4,
+            "max_tokens": 64
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+        request.setValue("legacy-test", forHTTPHeaderField: "Idempotency-Key")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let json = try parseJSON(data)
+        XCTAssertEqual(json["object"] as? String, "text_completion")
+        XCTAssertEqual(json["model"] as? String, "gpt-5-4")
+        let choices = json["choices"] as? [[String: Any]]
+        XCTAssertEqual(choices?.first?["text"] as? String, "legacy hello")
+
+        let upstreamRequest = await upstreamProbe.lastRequest
+        XCTAssertEqual(upstreamRequest?.target, "/backend-api/codex/responses?trace=legacy")
+        XCTAssertEqual(upstreamRequest?.headers["idempotency-key"], "legacy-test")
+
+        let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
+        XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
+        XCTAssertEqual(upstreamBody["input"] as? String, "legacy prompt")
+        XCTAssertEqual(upstreamBody["max_output_tokens"] as? Int, 64)
+        XCTAssertEqual(upstreamBody["temperature"] as? Double, 0.4)
+        XCTAssertEqual(
+            upstreamBody["instructions"] as? String,
+            SwiftNativeProxyRuntimeService.defaultRequiredInstructions
+        )
+    }
+
+    func testCompletionsSupportsBatchedPromptArray() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 47001...52000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            let prompt = (await upstreamProbe.lastRequest?.jsonBody["input"] as? String) ?? ""
+            let text = prompt == "first prompt" ? "first result" : "second result"
+            return HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+                body: Data("""
+                event: response.completed
+                data: {"type":"response.completed","response":{"id":"resp_batch","created_at":321,"model":"gpt-5.4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\(text)"}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}
+
+                """.utf8)
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let storeRepo = StaticStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "proxy@example.com",
+                        accountID: "acct",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["tokens": .object(["access_token": .string("token"), "account_id": .string("acct"), "id_token": .string("id-token")])]),
+                        addedAt: 0,
+                        updatedAt: 0,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepo,
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5-4",
+            "prompt": ["first prompt", "second prompt"]
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let json = try parseJSON(data)
+        let choices = try XCTUnwrap(json["choices"] as? [[String: Any]])
+        XCTAssertEqual(choices.count, 2)
+        XCTAssertEqual(choices[0]["text"] as? String, "first result")
+        XCTAssertEqual(choices[1]["text"] as? String, "second result")
+        XCTAssertEqual((json["usage"] as? [String: Any])?["total_tokens"] as? Int, 6)
+
+        let requests = await upstreamProbe.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.first?.jsonBody["input"] as? String, "first prompt")
+        XCTAssertEqual(requests.last?.jsonBody["input"] as? String, "second prompt")
+    }
+
+    func testCompletionsMapsIncompleteMaxOutputTokensToLengthFinishReason() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 47001...52000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+                body: Data("""
+                event: response.completed
+                data: {"type":"response.completed","response":{"id":"resp_length","created_at":123,"model":"gpt-5.4","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"truncated"}]}]}}
+
+                """.utf8)
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let storeRepo = StaticStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "proxy@example.com",
+                        accountID: "acct",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["tokens": .object(["access_token": .string("token"), "account_id": .string("acct"), "id_token": .string("id-token")])]),
+                        addedAt: 0,
+                        updatedAt: 0,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepo,
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5-4",
+            "prompt": "hello",
+            "max_tokens": 1
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let json = try parseJSON(data)
+        let choices = json["choices"] as? [[String: Any]]
+        XCTAssertEqual(choices?.first?["finish_reason"] as? String, "length")
     }
 
     func testResponsesCompactProxyForwardsToConfiguredUpstream() async throws {
@@ -738,6 +1320,91 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
         XCTAssertEqual(upstreamBody["store"] as? Bool, true)
         XCTAssertEqual(upstreamBody["stream"] as? Bool, true)
+        XCTAssertEqual(
+            upstreamBody["instructions"] as? String,
+            SwiftNativeProxyRuntimeService.defaultRequiredInstructions
+        )
+    }
+
+    func testResponsesPreservesExplicitInstructions() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 52001...57000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/event-stream; charset=utf-8"],
+                body: Data("event: response.completed\ndata: {\"id\":\"resp_1\",\"object\":\"response\",\"model\":\"gpt-5.4\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}\n\n".utf8)
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let storeRepo = StaticStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Primary",
+                        email: "proxy@example.com",
+                        accountID: "acct",
+                        planType: "pro",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: .object(["tokens": .object(["access_token": .string("token"), "account_id": .string("acct"), "id_token": .string("id-token")])]),
+                        addedAt: 0,
+                        updatedAt: 0,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: storeRepo,
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 57001...62000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/responses")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5-4",
+            "instructions": "Use markdown bullets.",
+            "input": "hello"
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let upstreamRequest = await upstreamProbe.lastRequest
+        let upstreamBody = try XCTUnwrap(upstreamRequest?.jsonBody)
+        XCTAssertEqual(upstreamBody["instructions"] as? String, "Use markdown bullets.")
     }
 
     func testPayloadOversizeDetectionFromContentLengthHeader() {
@@ -836,8 +1503,11 @@ private actor UpstreamRequestProbe {
     }
 
     private(set) var lastRequest: Snapshot?
+    private(set) var requests: [Snapshot] = []
 
     func record(request: HTTPRequest) {
-        lastRequest = Snapshot(target: request.target, path: request.path, headers: request.headers, body: request.body)
+        let snapshot = Snapshot(target: request.target, path: request.path, headers: request.headers, body: request.body)
+        lastRequest = snapshot
+        requests.append(snapshot)
     }
 }

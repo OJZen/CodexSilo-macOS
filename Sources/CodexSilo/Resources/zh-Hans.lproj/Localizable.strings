@@ -97,6 +97,8 @@
 "accounts.notice.imported_new_format" = "新账号已导入：%@";
 "accounts.notice.usage_refreshed" = "用量刷新完成";
 "accounts.notice.accounts_refreshed" = "账号已刷新";
+"accounts.notice.refresh_failed_format" = "刷新失败：%@";
+"accounts.notice.refresh_partially_failed_format" = "部分账号刷新失败：%@";
 "accounts.notice.account_deleted" = "账号已删除";
 "accounts.notice.team_name_updated" = "团队名称已更新";
 "accounts.notice.no_switch_target" = "暂无可切换账号";
@@ -249,7 +251,7 @@
 "error.proxy_runtime.start_swift_proxy_failed_format" = "启动 Swift 代理失败: %@";
 "error.proxy_runtime.start_failed" = "代理启动失败";
 "error.proxy_runtime.health_check_failed" = "Swift 代理未通过健康检查";
-"error.proxy_runtime.unsupported_route" = "当前反代只支持 GET /health、GET /v1/models、POST /v1/chat/completions、POST /v1/responses";
+"error.proxy_runtime.unsupported_route" = "当前反代只支持已配置的 OpenAI 兼容路由。";
 "error.proxy_runtime.no_accounts_available" = "暂无可用于代理的账号，请先添加并授权账号";
 "error.proxy_runtime.all_accounts_unavailable" = "所有账号均不可用，请稍后重试。";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "所有账号均不可用：%@";

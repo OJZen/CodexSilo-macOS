@@ -97,6 +97,8 @@
 "accounts.notice.imported_new_format" = "새 계정을 가져왔습니다: %@";
 "accounts.notice.usage_refreshed" = "사용량을 새로고침했습니다";
 "accounts.notice.accounts_refreshed" = "계정을 새로고침했습니다";
+"accounts.notice.refresh_failed_format" = "새로고침에 실패했습니다: %@";
+"accounts.notice.refresh_partially_failed_format" = "일부 계정을 새로고침하지 못했습니다: %@";
 "accounts.notice.account_deleted" = "계정을 삭제했습니다";
 "accounts.notice.team_name_updated" = "Team 이름을 업데이트했습니다";
 "accounts.notice.no_switch_target" = "전환 가능한 계정이 없습니다";
@@ -239,7 +241,7 @@
 "error.proxy_runtime.start_swift_proxy_failed_format" = "Swift 프록시 시작 실패: %@";
 "error.proxy_runtime.start_failed" = "프록시 시작 실패";
 "error.proxy_runtime.health_check_failed" = "Swift 프록시가 헬스 체크를 통과하지 못했습니다";
-"error.proxy_runtime.unsupported_route" = "프록시는 GET /health, GET /v1/models, POST /v1/chat/completions, POST /v1/responses만 지원합니다";
+"error.proxy_runtime.unsupported_route" = "프록시는 설정된 OpenAI 호환 라우트만 지원합니다.";
 "error.proxy_runtime.no_accounts_available" = "프록시에 사용할 계정이 없습니다. 최소 하나의 계정을 추가하고 인증하세요.";
 "error.proxy_runtime.all_accounts_unavailable" = "모든 계정을 사용할 수 없습니다. 잠시 후 다시 시도하세요.";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "모든 계정을 사용할 수 없습니다: %@";

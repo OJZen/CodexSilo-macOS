@@ -236,9 +236,9 @@ final class AccountsPageModel: ObservableObject {
         defer { isManualRefreshing = false }
 
         do {
-            let accounts: [AccountSummary]
+            let result: AccountsRefreshResult
             if let manualRefreshService {
-                accounts = try await manualRefreshService.performManualRefresh(
+                result = try await manualRefreshService.performManualRefresh(
                     onPartialUpdate: { [weak self] accounts in
                         guard let self else { return }
                         self.applyAccounts(accounts)
@@ -246,7 +246,7 @@ final class AccountsPageModel: ObservableObject {
                     }
                 )
             } else {
-                accounts = try await coordinator.refreshAllUsage(
+                result = try await coordinator.refreshAllUsageResult(
                     force: true,
                     onPartialUpdate: { [weak self] accounts in
                         guard let self else { return }
@@ -257,9 +257,12 @@ final class AccountsPageModel: ObservableObject {
                     }
                 )
             }
+            let accounts = result.accounts
             applyAccounts(accounts)
             publishLocalAccounts(accounts)
-            if showSuccessNotice {
+            if let failure = result.failure {
+                notice = NoticeMessage(style: .error, text: refreshFailureNoticeText(for: failure))
+            } else if showSuccessNotice {
                 let noticeKey = manualRefreshService == nil
                     ? "accounts.notice.usage_refreshed"
                     : "accounts.notice.accounts_refreshed"
@@ -478,5 +481,14 @@ final class AccountsPageModel: ObservableObject {
 
     var isRefreshSpinnerActive: Bool {
         isManualRefreshing
+    }
+
+    private func refreshFailureNoticeText(for failure: AccountsRefreshFailure) -> String {
+        switch failure {
+        case .complete(let reason):
+            return L10n.tr("accounts.notice.refresh_failed_format", reason)
+        case .partial(let reason):
+            return L10n.tr("accounts.notice.refresh_partially_failed_format", reason)
+        }
     }
 }

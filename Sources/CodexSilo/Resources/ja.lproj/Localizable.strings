@@ -97,6 +97,8 @@
 "accounts.notice.imported_new_format" = "新しいアカウントを取り込みました: %@";
 "accounts.notice.usage_refreshed" = "使用量を更新しました";
 "accounts.notice.accounts_refreshed" = "アカウントを更新しました";
+"accounts.notice.refresh_failed_format" = "更新に失敗しました: %@";
+"accounts.notice.refresh_partially_failed_format" = "一部のアカウントを更新できませんでした: %@";
 "accounts.notice.account_deleted" = "アカウントを削除しました";
 "accounts.notice.team_name_updated" = "Team 名を更新しました";
 "accounts.notice.no_switch_target" = "切替可能なアカウントがありません";
@@ -239,7 +241,7 @@
 "error.proxy_runtime.start_swift_proxy_failed_format" = "Swift プロキシの起動に失敗しました: %@";
 "error.proxy_runtime.start_failed" = "プロキシの起動に失敗しました";
 "error.proxy_runtime.health_check_failed" = "Swift プロキシがヘルスチェックに失敗しました";
-"error.proxy_runtime.unsupported_route" = "プロキシがサポートするのは GET /health、GET /v1/models、POST /v1/chat/completions、POST /v1/responses のみです";
+"error.proxy_runtime.unsupported_route" = "プロキシは設定済みの OpenAI 互換ルートのみをサポートします。";
 "error.proxy_runtime.no_accounts_available" = "プロキシに利用可能なアカウントがありません。少なくとも1つのアカウントを追加して認証してください。";
 "error.proxy_runtime.all_accounts_unavailable" = "すべてのアカウントが利用不可です。しばらくして再試行してください。";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "すべてのアカウントが利用不可です: %@";

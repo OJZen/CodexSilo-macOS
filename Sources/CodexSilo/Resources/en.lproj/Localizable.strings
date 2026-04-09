@@ -97,6 +97,8 @@
 "accounts.notice.imported_new_format" = "New account imported: %@";
 "accounts.notice.usage_refreshed" = "Usage refreshed";
 "accounts.notice.accounts_refreshed" = "Accounts refreshed";
+"accounts.notice.refresh_failed_format" = "Refresh failed: %@";
+"accounts.notice.refresh_partially_failed_format" = "Some accounts failed to refresh: %@";
 "accounts.notice.account_deleted" = "Account deleted";
 "accounts.notice.team_name_updated" = "Team name updated";
 "accounts.notice.no_switch_target" = "No account available for switching";
@@ -249,7 +251,7 @@
 "error.proxy_runtime.start_swift_proxy_failed_format" = "Failed to start Swift proxy: %@";
 "error.proxy_runtime.start_failed" = "Proxy start failed";
 "error.proxy_runtime.health_check_failed" = "Swift proxy failed health check";
-"error.proxy_runtime.unsupported_route" = "Proxy only supports GET /health, GET /v1/models, POST /v1/chat/completions, POST /v1/responses";
+"error.proxy_runtime.unsupported_route" = "Proxy only supports the configured OpenAI-compatible routes.";
 "error.proxy_runtime.no_accounts_available" = "No accounts available for proxy. Add and authorize at least one account first.";
 "error.proxy_runtime.all_accounts_unavailable" = "All accounts are unavailable. Please retry later.";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "All accounts are unavailable: %@";
