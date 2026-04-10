@@ -408,6 +408,58 @@ final class ProxyPageModelTests: XCTestCase {
         XCTAssertEqual(model.notice?.style, .success)
     }
 
+    func testResetMetricsPublishesSuccessNoticeAndRefreshesStatus() async {
+        let runtimeService = StubProxyRuntimeService(
+            statusResult: ApiProxyStatus(
+                running: true,
+                port: 8787,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:8787/v1",
+                availableAccounts: 1,
+                activeAccountID: "acct-1",
+                activeAccountLabel: "Primary",
+                lastError: nil,
+                metrics: ApiProxyMetrics(
+                    inFlightRequests: 0,
+                    totalRequests: 5,
+                    successfulRequests: 4,
+                    failedRequests: 1,
+                    promptTokens: 20,
+                    completionTokens: 10,
+                    totalTokens: 30,
+                    lastResponseAt: 1_763_216_250
+                )
+            ),
+            resetMetricsResult: ApiProxyStatus(
+                running: true,
+                port: 8787,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:8787/v1",
+                availableAccounts: 1,
+                activeAccountID: nil,
+                activeAccountLabel: nil,
+                lastError: nil,
+                metrics: .empty
+            )
+        )
+        let model = makeModel(
+            runtimeService: runtimeService,
+            dateProvider: FixedDateProvider(unixSeconds: 1_763_216_300)
+        )
+
+        await model.loadIfNeeded()
+        await model.resetMetrics()
+
+        XCTAssertEqual(runtimeService.resetMetricsCallCount, 1)
+        XCTAssertEqual(model.proxyStatus.metrics, .empty)
+        XCTAssertNil(model.proxyStatus.activeAccountID)
+        XCTAssertNil(model.proxyStatus.activeAccountLabel)
+        XCTAssertNil(model.proxyStatus.lastError)
+        XCTAssertEqual(model.lastRefreshedAt, 1_763_216_300)
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(model.notice?.text, L10n.tr("proxy.notice.metrics_reset"))
+    }
+
     func testClearLiveTestLogsRemovesPersistedHistory() async throws {
         let storeRepository = InMemoryAccountsStoreRepository(
             store: AccountsStore(
@@ -434,12 +486,75 @@ final class ProxyPageModelTests: XCTestCase {
         XCTAssertTrue(store.proxyLiveTestLogs.isEmpty)
     }
 
+    func testAutoRefreshUpdatesStatusEveryIntervalWhilePageIsVisible() async {
+        let runtimeService = StubProxyRuntimeService(
+            statusResult: ApiProxyStatus(
+                running: true,
+                port: 8787,
+                apiKey: "api-key",
+                baseURL: "http://127.0.0.1:8787/v1",
+                availableAccounts: 1,
+                activeAccountID: "acct-1",
+                activeAccountLabel: "Primary",
+                lastError: nil,
+                metrics: ApiProxyMetrics(
+                    inFlightRequests: 0,
+                    totalRequests: 1,
+                    successfulRequests: 1,
+                    failedRequests: 0,
+                    promptTokens: 10,
+                    completionTokens: 5,
+                    totalTokens: 15,
+                    lastResponseAt: 1_763_216_350
+                )
+            )
+        )
+        let model = makeModel(
+            runtimeService: runtimeService,
+            autoRefreshInterval: .milliseconds(50)
+        )
+
+        await model.loadIfNeeded()
+        XCTAssertEqual(runtimeService.statusCallCount, 1)
+        XCTAssertEqual(model.proxyStatus.metrics.totalRequests, 1)
+
+        runtimeService.statusResult = ApiProxyStatus(
+            running: true,
+            port: 8787,
+            apiKey: "api-key",
+            baseURL: "http://127.0.0.1:8787/v1",
+            availableAccounts: 1,
+            activeAccountID: "acct-1",
+            activeAccountLabel: "Primary",
+            lastError: nil,
+            metrics: ApiProxyMetrics(
+                inFlightRequests: 0,
+                totalRequests: 3,
+                successfulRequests: 2,
+                failedRequests: 1,
+                promptTokens: 30,
+                completionTokens: 12,
+                totalTokens: 42,
+                lastResponseAt: 1_763_216_351
+            )
+        )
+
+        try? await Task.sleep(for: .milliseconds(140))
+
+        XCTAssertGreaterThanOrEqual(runtimeService.statusCallCount, 2)
+        XCTAssertEqual(model.proxyStatus.metrics.totalRequests, 3)
+        XCTAssertEqual(model.proxyStatus.metrics.totalTokens, 42)
+
+        model.handlePageDisappear()
+    }
+
     private func makeModel(
         runtimeService: StubProxyRuntimeService = StubProxyRuntimeService(),
         store: AccountsStore = AccountsStore(),
         storeRepository: AccountsStoreRepository? = nil,
         launchAtStartupService: StubLaunchAtStartupService = StubLaunchAtStartupService(),
-        dateProvider: DateProviding = FixedDateProvider(unixSeconds: 1_763_216_000)
+        dateProvider: DateProviding = FixedDateProvider(unixSeconds: 1_763_216_000),
+        autoRefreshInterval: Duration = .seconds(1)
     ) -> ProxyPageModel {
         let resolvedStoreRepository = storeRepository ?? InMemoryAccountsStoreRepository(store: store)
         let proxyCoordinator = ProxyCoordinator(
@@ -455,7 +570,8 @@ final class ProxyPageModelTests: XCTestCase {
         return ProxyPageModel(
             coordinator: proxyCoordinator,
             settingsCoordinator: settingsCoordinator,
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            autoRefreshInterval: autoRefreshInterval
         )
     }
 }
@@ -515,21 +631,25 @@ private final class StubProxyRuntimeService: ProxyRuntimeService, @unchecked Sen
     var startResult: ApiProxyStatus
     var stopResult: ApiProxyStatus
     var refreshAPIKeyResult: ApiProxyStatus
+    var resetMetricsResult: ApiProxyStatus
     private(set) var startCalls: [Int?] = []
     private(set) var syncAccountsStoreCallCount = 0
     private(set) var statusCallCount = 0
     private(set) var refreshAPIKeyCallCount = 0
+    private(set) var resetMetricsCallCount = 0
 
     init(
         statusResult: ApiProxyStatus = .idle,
         startResult: ApiProxyStatus = .idle,
         stopResult: ApiProxyStatus = .idle,
-        refreshAPIKeyResult: ApiProxyStatus = .idle
+        refreshAPIKeyResult: ApiProxyStatus = .idle,
+        resetMetricsResult: ApiProxyStatus = .idle
     ) {
         self.statusResult = statusResult
         self.startResult = startResult
         self.stopResult = stopResult
         self.refreshAPIKeyResult = refreshAPIKeyResult
+        self.resetMetricsResult = resetMetricsResult
     }
 
     func status() async -> ApiProxyStatus {
@@ -549,6 +669,11 @@ private final class StubProxyRuntimeService: ProxyRuntimeService, @unchecked Sen
     func refreshAPIKey() async throws -> ApiProxyStatus {
         refreshAPIKeyCallCount += 1
         return refreshAPIKeyResult
+    }
+
+    func resetMetrics() async throws -> ApiProxyStatus {
+        resetMetricsCallCount += 1
+        return resetMetricsResult
     }
 
     func syncAccountsStore() async throws {

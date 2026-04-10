@@ -289,7 +289,7 @@ private struct SettingsLiveTestLogRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle()
-                    .fill(entry.status == .success ? Color.mint : Color.red)
+                    .fill(statusColor)
                     .frame(width: 8, height: 8)
 
                 Text(entry.model)
@@ -325,6 +325,17 @@ private struct SettingsLiveTestLogRow: View {
             dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
             timeStyle: .medium
         )
+    }
+
+    private var statusColor: Color {
+        switch entry.status {
+        case .success:
+            return .mint
+        case .warning:
+            return .orange
+        case .error:
+            return .red
+        }
     }
 }
 

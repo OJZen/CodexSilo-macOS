@@ -135,6 +135,7 @@
 "proxy.available_accounts_format" = "利用可能アカウント: %@";
 "proxy.action.refresh_status" = "ステータス更新";
 "proxy.action.test_live_request" = "実リクエストをテスト";
+"proxy.action.reset_metrics" = "Reset stats";
 "proxy.action.start_api_proxy" = "API プロキシ開始";
 "proxy.action.stop_api_proxy" = "API プロキシ停止";
 "proxy.start_on_launch" = "起動時に開始";
@@ -144,6 +145,19 @@
 "proxy.detail.api_key" = "API Key";
 "proxy.detail.active_routed_account" = "現在のルーティング先アカウント";
 "proxy.detail.last_error" = "最新エラー";
+"proxy.detail.request_metrics" = "Request metrics";
+"proxy.detail.last_response_at" = "Last response";
+"proxy.metric.in_flight_format" = "In flight: %@";
+"proxy.metric.total_requests_format" = "Requests: %@";
+"proxy.metric.total_tokens_format" = "Tokens: %@";
+"proxy.metric.in_flight_label" = "In-flight requests";
+"proxy.metric.total_requests_label" = "Total requests";
+"proxy.metric.successful_requests_label" = "Successful requests";
+"proxy.metric.failed_requests_label" = "Failed requests";
+"proxy.metric.prompt_tokens_label" = "Prompt tokens";
+"proxy.metric.completion_tokens_label" = "Completion tokens";
+"proxy.metric.total_tokens_label" = "Total tokens";
+"proxy.value.never" = "Never";
 "proxy.value.generated_after_start" = "起動後に生成";
 "proxy.value.generated_after_first_start" = "初回起動後に生成";
 "proxy.info.no_request_matched" = "まだリクエストがありません";
@@ -166,6 +180,8 @@
 "proxy.notice.api_proxy_stopped" = "API プロキシを停止しました";
 "proxy.notice.api_key_refreshed" = "API Key を更新しました";
 "proxy.notice.auto_start_updated" = "自動起動設定を更新しました";
+"proxy.notice.metrics_reset" = "Proxy stats reset";
+"proxy.log.codex_parameters_stripped_format" = "Codex 上流へ転送する前に未対応のパラメータを削除しました: %@.";
 "proxy.notice.test_request_succeeded_format" = "%@ 経由の実テストに成功しました: %@";
 "proxy.notice.test_request_requires_running_proxy" = "実テストを実行する前に API プロキシを起動してください。";
 "proxy.notice.test_request_missing_credentials" = "プロキシにベース URL または API キーがありません。再起動してもう一度試してください。";
@@ -252,6 +268,7 @@
 "error.proxy_runtime.health_check_failed" = "Swift プロキシがヘルスチェックに失敗しました";
 "error.proxy_runtime.unsupported_route" = "プロキシは設定済みの OpenAI 互換ルートのみをサポートします。";
 "error.proxy_runtime.no_accounts_available" = "プロキシに利用可能なアカウントがありません。少なくとも1つのアカウントを追加して認証してください。";
+"error.proxy_runtime.reset_metrics_in_flight" = "進行中のリクエストが完了するまで待ってからプロキシ統計をリセットしてください。";
 "error.proxy_runtime.all_accounts_unavailable" = "すべてのアカウントが利用不可です。しばらくして再試行してください。";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "すべてのアカウントが利用不可です: %@";
 "error.proxy_runtime.upstream_failed_with_more_format" = "Codex 上流リクエストに失敗しました: %@ | 他に %@ 件のアカウントが失敗";

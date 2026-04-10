@@ -1,6 +1,5 @@
 {
   "model": "gpt-5.4",
-  "max_tokens": 32000,
   "reasoningSummary": "auto",
   "reasoning_effort": "medium",
   "verbosity": "low",

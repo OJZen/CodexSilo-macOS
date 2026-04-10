@@ -42,6 +42,7 @@ protocol ProxyRuntimeService: Sendable {
     func start(preferredPort: Int?) async throws -> ApiProxyStatus
     func stop() async -> ApiProxyStatus
     func refreshAPIKey() async throws -> ApiProxyStatus
+    func resetMetrics() async throws -> ApiProxyStatus
     func syncAccountsStore() async throws
 }
 

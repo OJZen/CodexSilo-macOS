@@ -24,7 +24,6 @@
       ]
     }
   ],
-  "max_output_tokens": 32000,
   "store": false,
   "include": [
     "reasoning.encrypted_content"

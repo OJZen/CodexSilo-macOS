@@ -60,6 +60,10 @@ final class ProxyCoordinator: @unchecked Sendable {
         try await proxyService.refreshAPIKey()
     }
 
+    func resetMetrics() async throws -> ApiProxyStatus {
+        try await proxyService.resetMetrics()
+    }
+
     func loadLiveTestLogs() throws -> [ProxyLiveTestLogEntry] {
         try storeRepository.loadStore().proxyLiveTestLogs
     }

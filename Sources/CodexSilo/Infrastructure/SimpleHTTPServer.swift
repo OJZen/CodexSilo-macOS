@@ -11,9 +11,26 @@ struct HTTPRequest {
 }
 
 struct HTTPResponse {
+    enum Body {
+        case data(Data)
+        case stream(AsyncThrowingStream<Data, Error>)
+    }
+
     var statusCode: Int
     var headers: [String: String]
-    var body: Data
+    var body: Body
+
+    init(statusCode: Int, headers: [String: String], body: Data) {
+        self.statusCode = statusCode
+        self.headers = headers
+        self.body = .data(body)
+    }
+
+    init(statusCode: Int, headers: [String: String], stream: AsyncThrowingStream<Data, Error>) {
+        self.statusCode = statusCode
+        self.headers = headers
+        self.body = .stream(stream)
+    }
 
     static func json(statusCode: Int, object: Any) -> HTTPResponse {
         let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
@@ -30,6 +47,14 @@ struct HTTPResponse {
             headers: ["Content-Type": "text/plain; charset=utf-8"],
             body: Data(text.utf8)
         )
+    }
+
+    static func stream(
+        statusCode: Int,
+        headers: [String: String],
+        body: AsyncThrowingStream<Data, Error>
+    ) -> HTTPResponse {
+        HTTPResponse(statusCode: statusCode, headers: headers, stream: body)
     }
 }
 
@@ -140,10 +165,56 @@ final class SimpleHTTPServer: @unchecked Sendable {
     }
 
     private func send(response: HTTPResponse, on connection: NWConnection) {
-        let payload = Self.encode(response: response)
-        connection.send(content: payload, completion: .contentProcessed { _ in
+        Task {
+            do {
+                try await self.sendAsync(response: response, on: connection)
+            } catch {
+                connection.cancel()
+            }
+        }
+    }
+
+    private func sendAsync(response: HTTPResponse, on connection: NWConnection) async throws {
+        switch response.body {
+        case .data(let body):
+            let payload = Self.encode(statusCode: response.statusCode, headers: response.headers, body: body)
+            try await send(content: payload, on: connection)
             connection.cancel()
-        })
+
+        case .stream(let bodyStream):
+            let headerPayload = Self.encodeHeaders(
+                statusCode: response.statusCode,
+                headers: response.headers,
+                contentLength: nil,
+                chunked: true
+            )
+            try await send(content: headerPayload, on: connection)
+
+            do {
+                for try await chunk in bodyStream {
+                    guard !chunk.isEmpty else { continue }
+                    try await send(content: Self.encodeChunk(chunk), on: connection)
+                }
+                try await send(content: Data("0\r\n\r\n".utf8), on: connection)
+            } catch {
+                connection.cancel()
+                throw error
+            }
+
+            connection.cancel()
+        }
+    }
+
+    private func send(content: Data, on connection: NWConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: content, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            })
+        }
     }
 
     private static func parseRequest(from data: Data) -> HTTPRequest? {
@@ -230,21 +301,49 @@ final class SimpleHTTPServer: @unchecked Sendable {
         return nil
     }
 
-    private static func encode(response: HTTPResponse) -> Data {
-        let reason = reasonPhrase(for: response.statusCode)
+    private static func encode(statusCode: Int, headers: [String: String], body: Data) -> Data {
+        var output = encodeHeaders(
+            statusCode: statusCode,
+            headers: headers,
+            contentLength: body.count,
+            chunked: false
+        )
+        output.append(body)
+        return output
+    }
+
+    private static func encodeHeaders(
+        statusCode: Int,
+        headers: [String: String],
+        contentLength: Int?,
+        chunked: Bool
+    ) -> Data {
+        precondition(!(chunked && contentLength != nil))
+
+        let reason = reasonPhrase(for: statusCode)
         var headerLines: [String] = [
-            "HTTP/1.1 \(response.statusCode) \(reason)",
-            "Connection: close",
-            "Content-Length: \(response.body.count)"
+            "HTTP/1.1 \(statusCode) \(reason)",
+            "Connection: close"
         ]
 
-        for (key, value) in response.headers {
+        if let contentLength {
+            headerLines.append("Content-Length: \(contentLength)")
+        } else if chunked {
+            headerLines.append("Transfer-Encoding: chunked")
+        }
+
+        for (key, value) in headers {
             headerLines.append("\(key): \(value)")
         }
         headerLines.append("\r\n")
 
-        var output = Data(headerLines.joined(separator: "\r\n").utf8)
-        output.append(response.body)
+        return Data(headerLines.joined(separator: "\r\n").utf8)
+    }
+
+    private static func encodeChunk(_ chunk: Data) -> Data {
+        var output = Data("\(String(chunk.count, radix: 16))\r\n".utf8)
+        output.append(chunk)
+        output.append(Data("\r\n".utf8))
         return output
     }
 

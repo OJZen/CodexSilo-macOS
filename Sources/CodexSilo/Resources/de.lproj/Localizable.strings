@@ -133,6 +133,7 @@
 "proxy.available_accounts_format" = "Verfügbare Konten: %@";
 "proxy.action.refresh_status" = "Status aktualisieren";
 "proxy.action.test_live_request" = "Echte Anfrage testen";
+"proxy.action.reset_metrics" = "Reset stats";
 "proxy.action.start_api_proxy" = "API Proxy starten";
 "proxy.action.stop_api_proxy" = "API Proxy stoppen";
 "proxy.start_on_launch" = "Beim Start ausführen";
@@ -140,6 +141,19 @@
 "proxy.detail.api_key" = "API-Schlüssel";
 "proxy.detail.active_routed_account" = "Aktiv geroutetes Konto";
 "proxy.detail.last_error" = "Letzter Fehler";
+"proxy.detail.request_metrics" = "Request metrics";
+"proxy.detail.last_response_at" = "Last response";
+"proxy.metric.in_flight_format" = "In flight: %@";
+"proxy.metric.total_requests_format" = "Requests: %@";
+"proxy.metric.total_tokens_format" = "Tokens: %@";
+"proxy.metric.in_flight_label" = "In-flight requests";
+"proxy.metric.total_requests_label" = "Total requests";
+"proxy.metric.successful_requests_label" = "Successful requests";
+"proxy.metric.failed_requests_label" = "Failed requests";
+"proxy.metric.prompt_tokens_label" = "Prompt tokens";
+"proxy.metric.completion_tokens_label" = "Completion tokens";
+"proxy.metric.total_tokens_label" = "Total tokens";
+"proxy.value.never" = "Never";
 "proxy.value.generated_after_start" = "Wird nach dem Start erzeugt";
 "proxy.value.generated_after_first_start" = "Wird nach dem ersten Start erzeugt";
 "proxy.info.no_request_matched" = "Bisher keine passende Anfrage";
@@ -162,6 +176,8 @@
 "proxy.notice.api_proxy_stopped" = "API Proxy gestoppt";
 "proxy.notice.api_key_refreshed" = "API-Schlüssel aktualisiert";
 "proxy.notice.auto_start_updated" = "Autostart-Einstellung aktualisiert";
+"proxy.notice.metrics_reset" = "Proxy stats reset";
+"proxy.log.codex_parameters_stripped_format" = "Removed unsupported Codex parameters before upstream forwarding: %@.";
 "proxy.notice.test_request_succeeded_format" = "Live-Test über %@ erfolgreich: %@";
 "proxy.notice.test_request_requires_running_proxy" = "Starten Sie den API-Proxy, bevor Sie einen Live-Test ausführen.";
 "proxy.notice.test_request_missing_credentials" = "Dem Proxy fehlen Basis-URL oder API-Schlüssel. Starten Sie ihn erneut und versuchen Sie es noch einmal.";
@@ -248,6 +264,7 @@
 "error.proxy_runtime.health_check_failed" = "Swift proxy failed health check";
 "error.proxy_runtime.unsupported_route" = "Proxy only supports the configured OpenAI-compatible routes.";
 "error.proxy_runtime.no_accounts_available" = "No accounts available for proxy. Add and authorize at least one account first.";
+"error.proxy_runtime.reset_metrics_in_flight" = "Wait for in-flight requests to finish before resetting proxy stats.";
 "error.proxy_runtime.all_accounts_unavailable" = "All accounts are unavailable. Please retry later.";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "All accounts are unavailable: %@";
 "error.proxy_runtime.upstream_failed_with_more_format" = "Codex upstream request failed: %@ | %@ more accounts failed";

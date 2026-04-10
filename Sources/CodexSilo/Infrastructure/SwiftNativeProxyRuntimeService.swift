@@ -4,6 +4,11 @@ import Darwin
 #endif
 
 actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
+    private enum ProxyLogDefaults {
+        static let maxStoredLogs = 50
+        static let compatibilityWarningThrottleSeconds: Int64 = 300
+    }
+
     enum UpstreamRouteFamily: Equatable {
         case codex
         case general
@@ -19,6 +24,12 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         case responsesCompact
         case chatCompletions
         case completions
+    }
+
+    enum ProxyRequestObservationOutcome {
+        case success
+        case failure
+        case cancelled
     }
 
     struct NormalizedProxyRequest {
@@ -128,6 +139,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private var activeAccountID: String?
     private var activeAccountLabel: String?
     private var lastError: String?
+    private var metrics: ApiProxyMetrics = .empty
+    private var didLoadPersistedMetrics = false
+    private var activeObservedRequestIDs = Set<Int>()
+    private var nextObservedRequestID = 0
+    private var compatibilityWarningLastLoggedAt: [String: Int64] = [:]
 
     private let models = SwiftNativeProxyRuntimeService.clientVisibleModels
 
@@ -146,6 +162,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     }
 
     func status() async -> ApiProxyStatus {
+        loadPersistedMetricsIfNeeded()
         let running = server != nil
         let apiKey = (try? ensurePersistedAPIKey()) ?? nil
         let availableAccounts = (try? loadCandidates().count) ?? 0
@@ -168,11 +185,13 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             availableAccounts: availableAccounts,
             activeAccountID: activeAccountID,
             activeAccountLabel: activeAccountLabel,
-            lastError: lastError
+            lastError: lastError,
+            metrics: metrics
         )
     }
 
     func start(preferredPort: Int?) async throws -> ApiProxyStatus {
+        loadPersistedMetricsIfNeeded()
         if server != nil {
             return await status()
         }
@@ -232,8 +251,26 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         return await status()
     }
 
+    func resetMetrics() async throws -> ApiProxyStatus {
+        loadPersistedMetricsIfNeeded()
+
+        guard activeObservedRequestIDs.isEmpty else {
+            throw AppError.invalidData(L10n.tr("error.proxy_runtime.reset_metrics_in_flight"))
+        }
+
+        metrics = .empty
+        activeAccountID = nil
+        activeAccountLabel = nil
+        lastError = nil
+        persistMetricsIfPossible()
+        return await status()
+    }
+
     func syncAccountsStore() async throws {
-        // Swift native runtime reads the same app store source directly.
+        guard activeObservedRequestIDs.isEmpty else {
+            return
+        }
+        loadPersistedMetricsIfNeeded(forceReload: true)
     }
 
     private func handle(request: HTTPRequest) async -> HTTPResponse {
@@ -262,25 +299,128 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         if Self.responsesPaths.contains(request.path) && request.method == "POST" {
-            return await handleResponsesRequest(request)
+            return await observeProxyRequest {
+                await handleResponsesRequest(request)
+            }
         }
 
         if Self.responsesCompactPaths.contains(request.path) && request.method == "POST" {
-            return await handleResponsesCompactRequest(request)
+            return await observeProxyRequest {
+                await handleResponsesCompactRequest(request)
+            }
         }
 
         if Self.chatCompletionsPaths.contains(request.path) && request.method == "POST" {
-            return await handleChatCompletionsRequest(request)
+            return await observeProxyRequest {
+                await handleChatCompletionsRequest(request)
+            }
         }
 
         if Self.completionsPaths.contains(request.path) && request.method == "POST" {
-            return await handleCompletionsRequest(request)
+            return await observeProxyRequest {
+                await handleCompletionsRequest(request)
+            }
         }
 
         return jsonError(
             statusCode: 404,
             message: L10n.tr("error.proxy_runtime.unsupported_route")
         )
+    }
+
+    private func observeProxyRequest(
+        _ operation: () async -> HTTPResponse
+    ) async -> HTTPResponse {
+        let requestID = beginObservedProxyRequest()
+        let response = await operation()
+        return observeProxyResponse(response, requestID: requestID)
+    }
+
+    private func beginObservedProxyRequest() -> Int {
+        nextObservedRequestID += 1
+        let requestID = nextObservedRequestID
+        activeObservedRequestIDs.insert(requestID)
+        metrics.inFlightRequests += 1
+        metrics.totalRequests += 1
+        return requestID
+    }
+
+    private func observeProxyResponse(_ response: HTTPResponse, requestID: Int) -> HTTPResponse {
+        switch response.body {
+        case .data(let body):
+            let outcome: ProxyRequestObservationOutcome = (200..<300).contains(response.statusCode) ? .success : .failure
+            let usage = outcome == .success
+                ? extractUsageFromDownstreamBody(statusCode: response.statusCode, headers: response.headers, body: body)
+                : nil
+            completeObservedProxyRequest(requestID, outcome: outcome, usage: usage)
+            return response
+
+        case .stream(let bodyStream):
+            let observedStream = makeObservedStreamingBody(
+                from: bodyStream,
+                requestID: requestID,
+                statusCode: response.statusCode
+            )
+            return HTTPResponse.stream(
+                statusCode: response.statusCode,
+                headers: response.headers,
+                body: observedStream
+            )
+        }
+    }
+
+    private func completeObservedProxyRequest(
+        _ requestID: Int,
+        outcome: ProxyRequestObservationOutcome,
+        usage: [String: Any]? = nil
+    ) {
+        guard activeObservedRequestIDs.remove(requestID) != nil else {
+            return
+        }
+
+        metrics.inFlightRequests = max(0, metrics.inFlightRequests - 1)
+
+        switch outcome {
+        case .success:
+            metrics.successfulRequests += 1
+            metrics.lastResponseAt = dateProvider.unixSecondsNow()
+            if let usage {
+                applyUsageMetrics(usage)
+            }
+
+        case .failure:
+            metrics.failedRequests += 1
+            metrics.lastResponseAt = dateProvider.unixSecondsNow()
+
+        case .cancelled:
+            break
+        }
+
+        persistMetricsIfPossible()
+    }
+
+    private func loadPersistedMetricsIfNeeded(forceReload: Bool = false) {
+        guard forceReload || !didLoadPersistedMetrics else {
+            return
+        }
+
+        let persistedMetrics = (try? storeRepository.loadStore().proxyMetrics) ?? .empty
+        metrics = persistedMetrics.persistedValue
+        didLoadPersistedMetrics = true
+    }
+
+    private func persistMetricsIfPossible() {
+        guard didLoadPersistedMetrics else {
+            return
+        }
+
+        do {
+            var store = try storeRepository.loadStore()
+            store.proxyMetrics = metrics.persistedValue
+            try storeRepository.saveStore(store)
+        } catch {
+            // Keep runtime metrics in memory even if persistence temporarily fails.
+        }
     }
 
     private func handleResponsesRequest(_ request: HTTPRequest) async -> HTTPResponse {
@@ -298,6 +438,18 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return jsonError(statusCode: 400, message: error.localizedDescription)
         }
 
+        if normalized.downstreamStream {
+            do {
+                return try await streamResponsesOverCandidates(
+                    payload: normalized.payload,
+                    request: request,
+                    endpointKind: normalized.endpointKind
+                )
+            } catch {
+                return jsonError(statusCode: 502, message: error.localizedDescription)
+            }
+        }
+
         let upstream: UpstreamResponse
         do {
             upstream = try await sendOverCandidates(
@@ -311,10 +463,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
         guard (200..<300).contains(upstream.statusCode) else {
             return downstreamResponse(from: upstream)
-        }
-
-        if normalized.downstreamStream {
-            return downstreamResponse(from: upstream, defaultContentType: "text/event-stream; charset=utf-8")
         }
 
         do {
@@ -622,6 +770,78 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         throw AppError.network(message)
     }
 
+    private func streamResponsesOverCandidates(
+        payload: [String: Any],
+        request: HTTPRequest,
+        endpointKind: UpstreamEndpointKind = .responses
+    ) async throws -> HTTPResponse {
+        let candidates = try loadCandidates()
+        guard !candidates.isEmpty else {
+            throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
+        }
+
+        var failureDetails: [String] = []
+        var retryFailures: [RetryFailureInfo] = []
+        var lastRetriableResponse: UpstreamResponse?
+
+        for candidate in candidates {
+            do {
+                let result = try await sendStreamingUpstream(
+                    payload: payload,
+                    candidate: candidate,
+                    request: request,
+                    endpointKind: endpointKind
+                )
+
+                switch result {
+                case .streaming(let response):
+                    activeAccountID = candidate.accountID
+                    activeAccountLabel = candidate.label
+                    lastError = nil
+                    return streamingResponse(
+                        statusCode: response.statusCode,
+                        body: response.body,
+                        baseHeaders: response.headers,
+                        defaultContentType: "text/event-stream; charset=utf-8"
+                    )
+
+                case .buffered(let response):
+                    let bodyText = String(data: response.body, encoding: .utf8) ?? ""
+                    let detail = "\(candidate.label): \(response.statusCode) \(truncateForError(bodyText, maxLength: 120))"
+                    failureDetails.append(detail)
+
+                    if let retryFailure = classifyRetryFailure(statusCode: response.statusCode, bodyText: bodyText) {
+                        retryFailures.append(retryFailure)
+                        lastRetriableResponse = response
+                        continue
+                    } else {
+                        lastError = detail
+                        return downstreamResponse(from: response)
+                    }
+                }
+            } catch {
+                let detail = "\(candidate.label): \(error.localizedDescription)"
+                failureDetails.append(detail)
+            }
+        }
+
+        if let lastRetriableResponse {
+            let summary = buildRetriableFailureSummary(retryFailures)
+            let message = summary.isEmpty
+                ? L10n.tr("error.proxy_runtime.all_accounts_unavailable")
+                : L10n.tr("error.proxy_runtime.all_accounts_unavailable_with_summary_format", summary)
+            lastError = message
+            return downstreamResponse(from: lastRetriableResponse)
+        }
+
+        let preview = failureDetails.prefix(2).joined(separator: " | ")
+        let message = failureDetails.count > 2
+            ? L10n.tr("error.proxy_runtime.upstream_failed_with_more_format", preview, String(failureDetails.count - 2))
+            : L10n.tr("error.proxy_runtime.upstream_failed_format", preview)
+        lastError = message
+        throw AppError.network(message)
+    }
+
     private func sendUpstream(
         payload: [String: Any],
         candidate: ProxyCandidate,
@@ -647,6 +867,35 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 request: request,
                 endpointKind: endpointKind
             )
+        }
+
+        return firstResponse
+    }
+
+    private func sendStreamingUpstream(
+        payload: [String: Any],
+        candidate: ProxyCandidate,
+        request: HTTPRequest,
+        endpointKind: UpstreamEndpointKind
+    ) async throws -> UpstreamStreamingResult {
+        let firstResponse = try await performUpstreamStreamingRequest(
+            payload: payload,
+            candidate: candidate,
+            request: request,
+            endpointKind: endpointKind
+        )
+
+        if case .buffered(let firstBuffered) = firstResponse {
+            let firstBodyText = String(data: firstBuffered.body, encoding: .utf8) ?? ""
+            if Self.shouldRetryWithAutoReasoningSummary(statusCode: firstBuffered.statusCode, bodyText: firstBodyText),
+               let adjustedPayload = Self.payloadWithAutoReasoningSummaryIfNeeded(payload: payload) {
+                return try await performUpstreamStreamingRequest(
+                    payload: adjustedPayload,
+                    candidate: candidate,
+                    request: request,
+                    endpointKind: endpointKind
+                )
+            }
         }
 
         return firstResponse
@@ -714,6 +963,162 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         )
     }
 
+    private func performUpstreamStreamingRequest(
+        payload: [String: Any],
+        candidate: ProxyCandidate,
+        request downstreamRequest: HTTPRequest,
+        endpointKind: UpstreamEndpointKind
+    ) async throws -> UpstreamStreamingResult {
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let upstreamModel = (payload["model"] as? String) ?? "gpt-5.4"
+        let version = Self.normalizedForwardHeader(downstreamRequest.headers["version"]) ?? Self.defaultCodexClientVersion
+        let sessionID = Self.normalizedForwardHeader(downstreamRequest.headers["session_id"])
+            ?? Self.normalizedForwardHeader(downstreamRequest.headers["session-id"])
+            ?? UUID().uuidString
+        let userAgent = Self.normalizedForwardHeader(downstreamRequest.headers["user-agent"]) ?? Self.defaultCodexUserAgent
+        var request = URLRequest(
+            url: upstreamEndpoint(
+                forUpstreamModel: upstreamModel,
+                endpointKind: endpointKind,
+                queryItems: downstreamRequest.queryItems
+            )
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 180
+        request.httpBody = body
+        applyForwardHeaders(downstreamRequest.headers, to: &request)
+        request.setValue("Bearer \(candidate.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(candidate.accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(
+            preferredUpstreamAcceptHeader(payload: payload, endpointKind: endpointKind),
+            forHTTPHeaderField: "Accept"
+        )
+        request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
+        request.setValue(version, forHTTPHeaderField: "Version")
+        request.setValue(sessionID, forHTTPHeaderField: "Session_id")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("Keep-Alive", forHTTPHeaderField: "Connection")
+
+        let (responseBytes, response) = try await URLSession.shared.bytes(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 500
+        let headers = Self.responseHeaders(from: httpResponse)
+
+        if (200..<300).contains(statusCode) {
+            return .streaming(
+                UpstreamStreamingResponse(
+                    statusCode: statusCode,
+                    headers: headers,
+                    body: makeStreamingBody(from: responseBytes)
+                )
+            )
+        }
+
+        let responseBody = try await bufferedResponseData(from: responseBytes)
+        return .buffered(
+            UpstreamResponse(
+                statusCode: statusCode,
+                headers: headers,
+                body: responseBody
+            )
+        )
+    }
+
+    private func bufferedResponseData(from responseBytes: URLSession.AsyncBytes) async throws -> Data {
+        var responseBody = Data()
+        responseBody.reserveCapacity(64 * 1024)
+
+        for try await byte in responseBytes {
+            responseBody.append(byte)
+            if responseBody.count > ProxyRuntimeLimits.maxUpstreamResponseBytes {
+                throw AppError.network(
+                    L10n.tr(
+                        "error.proxy_runtime.upstream_response_too_large_format",
+                        ProxyRuntimeLimits.limitDescription(for: ProxyRuntimeLimits.maxUpstreamResponseBytes)
+                    )
+                )
+            }
+        }
+
+        return responseBody
+    }
+
+    private func makeStreamingBody(from responseBytes: URLSession.AsyncBytes) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            Task.detached {
+                var chunk = Data()
+                chunk.reserveCapacity(1024)
+                var totalBytes = 0
+
+                do {
+                    for try await byte in responseBytes {
+                        chunk.append(byte)
+                        totalBytes += 1
+
+                        if totalBytes > ProxyRuntimeLimits.maxUpstreamResponseBytes {
+                            throw AppError.network(
+                                L10n.tr(
+                                    "error.proxy_runtime.upstream_response_too_large_format",
+                                    ProxyRuntimeLimits.limitDescription(for: ProxyRuntimeLimits.maxUpstreamResponseBytes)
+                                )
+                            )
+                        }
+
+                        if byte == 0x0A || chunk.count >= 1024 {
+                            continuation.yield(chunk)
+                            chunk.removeAll(keepingCapacity: true)
+                        }
+                    }
+
+                    if !chunk.isEmpty {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func makeObservedStreamingBody(
+        from stream: AsyncThrowingStream<Data, Error>,
+        requestID: Int,
+        statusCode: Int
+    ) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let accumulator = StreamingUsageAccumulator()
+
+            continuation.onTermination = { @Sendable termination in
+                guard case .cancelled = termination else { return }
+                Task { [self] in
+                    await completeObservedProxyRequest(requestID, outcome: .cancelled)
+                }
+            }
+
+            Task.detached { [self] in
+                do {
+                    for try await chunk in stream {
+                        accumulator.consume(chunk)
+                        continuation.yield(chunk)
+                    }
+
+                    let usage = (200..<300).contains(statusCode) ? accumulator.finalUsage() : nil
+                    await completeObservedProxyRequest(
+                        requestID,
+                        outcome: (200..<300).contains(statusCode) ? .success : .failure,
+                        usage: usage
+                    )
+                    continuation.finish()
+                } catch {
+                    await completeObservedProxyRequest(requestID, outcome: .failure)
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     private func applyForwardHeaders(_ downstreamHeaders: [String: String], to request: inout URLRequest) {
         for (key, value) in downstreamHeaders {
             guard !Self.excludedForwardRequestHeaders.contains(key),
@@ -722,6 +1127,71 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
             request.setValue(value, forHTTPHeaderField: key)
         }
+    }
+
+    private func extractUsageFromDownstreamBody(
+        statusCode: Int,
+        headers: [String: String],
+        body: Data
+    ) -> [String: Any]? {
+        guard (200..<300).contains(statusCode) else {
+            return nil
+        }
+
+        if isLikelySSEBody(headers: headers, body: body) {
+            return extractUsageFromSSEBody(body)
+        }
+
+        guard let object = try? parseJSONObject(from: body) else {
+            return nil
+        }
+
+        return object["usage"] as? [String: Any]
+    }
+
+    private func applyUsageMetrics(_ usage: [String: Any]) {
+        let counts = normalizedUsageCounts(from: usage)
+        if let promptTokens = counts.promptTokens {
+            metrics.promptTokens += promptTokens
+        }
+        if let completionTokens = counts.completionTokens {
+            metrics.completionTokens += completionTokens
+        }
+        if let totalTokens = counts.totalTokens {
+            metrics.totalTokens += totalTokens
+        } else if let promptTokens = counts.promptTokens,
+                  let completionTokens = counts.completionTokens {
+            metrics.totalTokens += promptTokens + completionTokens
+        }
+    }
+
+    private func normalizedUsageCounts(from usage: [String: Any]) -> NormalizedUsageCounts {
+        let promptTokens = integerValue(
+            usage["prompt_tokens"]
+                ?? usage["input_tokens"]
+        )
+        let completionTokens = integerValue(
+            usage["completion_tokens"]
+                ?? usage["output_tokens"]
+        )
+        let totalTokens = integerValue(usage["total_tokens"])
+
+        return NormalizedUsageCounts(
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            totalTokens: totalTokens
+        )
+    }
+
+    private func integerValue(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String,
+           let integer = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return integer
+        }
+        return nil
     }
 
     private func downstreamResponse(from upstream: UpstreamResponse, defaultContentType: String? = nil) -> HTTPResponse {
@@ -750,6 +1220,23 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         return HTTPResponse(statusCode: statusCode, headers: headers, body: body)
     }
 
+    private func streamingResponse(
+        statusCode: Int,
+        body: AsyncThrowingStream<Data, Error>,
+        baseHeaders: [String: String],
+        defaultContentType: String? = nil
+    ) -> HTTPResponse {
+        var headers = baseHeaders.filter { key, _ in
+            !Self.excludedForwardResponseHeaders.contains(key.lowercased())
+        }
+        if let defaultContentType,
+           headers["content-type"] == nil,
+           headers["Content-Type"] == nil {
+            headers["Content-Type"] = defaultContentType
+        }
+        return HTTPResponse.stream(statusCode: statusCode, headers: headers, body: body)
+    }
+
     private func jsonResponse(statusCode: Int, object: Any, baseHeaders: [String: String]) -> HTTPResponse {
         let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
         let sanitizedBaseHeaders = baseHeaders.filter { key, _ in
@@ -776,18 +1263,51 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     }
 
     private func isLikelySSEResponse(_ upstream: UpstreamResponse) -> Bool {
-        if let contentType = upstream.headers["content-type"]?.lowercased(),
+        isLikelySSEBody(headers: upstream.headers, body: upstream.body)
+    }
+
+    private func isLikelySSEBody(headers: [String: String], body: Data) -> Bool {
+        if let contentType = headers["content-type"]?.lowercased(),
            contentType.contains("text/event-stream") {
             return true
         }
 
-        guard let bodyText = String(data: upstream.body, encoding: .utf8)?
+        guard let bodyText = String(data: body, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !bodyText.isEmpty else {
             return false
         }
 
         return bodyText.hasPrefix("data:") || bodyText.hasPrefix("event:")
+    }
+
+    private func extractUsageFromSSEBody(_ body: Data) -> [String: Any]? {
+        let events = parseSSEEvents(from: body)
+        var latestUsage: [String: Any]?
+
+        for event in events {
+            guard event.data != "[DONE]",
+                  let payloadData = event.data.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+                continue
+            }
+            if let usage = extractUsagePayload(from: parsed) {
+                latestUsage = usage
+            }
+        }
+
+        return latestUsage
+    }
+
+    private func extractUsagePayload(from payload: [String: Any]) -> [String: Any]? {
+        if let usage = payload["usage"] as? [String: Any] {
+            return usage
+        }
+        if let response = payload["response"] as? [String: Any],
+           let usage = response["usage"] as? [String: Any] {
+            return usage
+        }
+        return nil
     }
 
     private static func responseHeaders(from response: HTTPURLResponse?) -> [String: String] {
@@ -898,8 +1418,17 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
 
     private func loadCandidates() throws -> [ProxyCandidate] {
         let store = try storeRepository.loadStore()
+        guard let selection = store.currentSelection else {
+            return []
+        }
 
         let candidates = try store.accounts.compactMap { account -> ProxyCandidate? in
+            guard account.matchesSelection(
+                accountKey: selection.resolvedAccountKey,
+                variantKey: selection.resolvedVariantKey
+            ) else {
+                return nil
+            }
             let extracted = try authRepository.extractAuth(from: account.authJSON)
             return ProxyCandidate(
                 id: account.id,
@@ -996,8 +1525,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         hoistReasoningAliases(into: &payload)
         hoistTextAliases(into: &payload)
         enforceRequiredCodexUpstreamDefaults(in: &payload, upstreamModel: upstreamModel)
-        normalizeCodexTokenLimitParameters(in: &payload, upstreamModel: upstreamModel)
         stripUnsupportedCodexUpstreamParameters(in: &payload, upstreamModel: upstreamModel)
+        try canonicalizeCodexInputStructure(in: &payload, upstreamModel: upstreamModel)
 
         if endpointKind == .responses && !downstreamStream {
             payload["stream"] = true
@@ -1126,15 +1655,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             payload["reasoning"] = reasoning
         }
 
-        if let maxCompletionTokens = payload.removeValue(forKey: "max_completion_tokens"),
-           payload["max_output_tokens"] == nil {
-            payload["max_output_tokens"] = maxCompletionTokens
-        }
-        if let maxTokens = payload.removeValue(forKey: "max_tokens"),
-           payload["max_output_tokens"] == nil {
-           payload["max_output_tokens"] = maxTokens
-        }
-
         payload["stream"] = downstreamStream
         payload["input"] = input
         payload["instructions"] = inferredInstructions ?? Self.defaultRequiredInstructions
@@ -1211,11 +1731,6 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         payload["input"] = promptText
         ensureRequiredInstructions(in: &payload)
 
-        if let maxTokens = payload.removeValue(forKey: "max_tokens"),
-           payload["max_output_tokens"] == nil {
-            payload["max_output_tokens"] = maxTokens
-        }
-
         return (rawModel, payload, downstreamStream)
     }
 
@@ -1244,14 +1759,135 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private func stripUnsupportedCodexUpstreamParameters(in payload: inout [String: Any], upstreamModel: String?) {
         let routeFamily = upstreamModel.map(Self.resolveUpstreamRouteFamily(forUpstreamModel:)) ?? .general
         guard routeFamily == .codex else { return }
-        payload.removeValue(forKey: "stream_options")
+        let removedParameters = removeUnsupportedCodexParameters(from: &payload)
+        guard !removedParameters.isEmpty else {
+            return
+        }
+
+        appendCompatibilityWarningLog(
+            model: upstreamModel ?? "codex",
+            message: L10n.tr(
+                "proxy.log.codex_parameters_stripped_format",
+                removedParameters.joined(separator: ", ")
+            )
+        )
     }
 
-    private func normalizeCodexTokenLimitParameters(in payload: inout [String: Any], upstreamModel: String?) {
+    private func removeUnsupportedCodexParameters(from payload: inout [String: Any]) -> [String] {
+        let unsupportedKeys = [
+            "stream_options",
+            "max_tokens",
+            "max_output_tokens",
+            "max_completion_tokens"
+        ]
+
+        var removed: [String] = []
+        for key in unsupportedKeys {
+            if let value = payload[key], !(value is NSNull) {
+                removed.append(key)
+            }
+            payload.removeValue(forKey: key)
+        }
+        return removed
+    }
+
+    private func appendCompatibilityWarningLog(model: String, message: String) {
+        let now = dateProvider.unixSecondsNow()
+        let signature = "\(model)|\(message)"
+        if let lastLoggedAt = compatibilityWarningLastLoggedAt[signature],
+           now - lastLoggedAt < ProxyLogDefaults.compatibilityWarningThrottleSeconds {
+            return
+        }
+        compatibilityWarningLastLoggedAt[signature] = now
+
+        do {
+            var store = try storeRepository.loadStore()
+            store.proxyLiveTestLogs.insert(
+                ProxyLiveTestLogEntry(
+                    id: UUID().uuidString,
+                    createdAt: now,
+                    model: model,
+                    status: .warning,
+                    message: message
+                ),
+                at: 0
+            )
+            if store.proxyLiveTestLogs.count > ProxyLogDefaults.maxStoredLogs {
+                store.proxyLiveTestLogs = Array(store.proxyLiveTestLogs.prefix(ProxyLogDefaults.maxStoredLogs))
+            }
+            try storeRepository.saveStore(store)
+        } catch {
+            // Logging should never interrupt successful proxy forwarding.
+        }
+    }
+
+    private func canonicalizeCodexInputStructure(in payload: inout [String: Any], upstreamModel: String?) throws {
         let routeFamily = upstreamModel.map(Self.resolveUpstreamRouteFamily(forUpstreamModel:)) ?? .general
         guard routeFamily == .codex else { return }
-        payload.removeValue(forKey: "max_tokens")
-        payload.removeValue(forKey: "max_output_tokens")
+        guard let rawInput = payload["input"] else { return }
+
+        if let text = rawInput as? String {
+            payload["input"] = [[
+                "type": "message",
+                "role": "user",
+                "content": convertMessageContentToCodexParts(role: "user", content: text)
+            ]]
+            return
+        }
+
+        guard let items = rawInput as? [Any] else {
+            throw AppError.invalidData("The input parameter must be a list for Codex routes.")
+        }
+
+        payload["input"] = try items.map { try canonicalizeCodexInputItem($0) }
+    }
+
+    private func canonicalizeCodexInputItem(_ raw: Any) throws -> [String: Any] {
+        if let text = raw as? String {
+            return [
+                "type": "message",
+                "role": "user",
+                "content": convertMessageContentToCodexParts(role: "user", content: text)
+            ]
+        }
+
+        guard let object = raw as? [String: Any] else {
+            throw AppError.invalidData("Each input item must be an object for Codex routes.")
+        }
+
+        if let type = object["type"] as? String {
+            if type == "message" {
+                let role = normalizedCodexMessageRole(object["role"] as? String)
+                var normalized = object
+                normalized["type"] = "message"
+                normalized["role"] = role
+                normalized["content"] = convertMessageContentToCodexParts(role: role, content: object["content"])
+                return normalized
+            }
+            return object
+        }
+
+        guard let rawRole = object["role"] as? String, !rawRole.isEmpty else {
+            throw AppError.invalidData("Each input item must include a role for Codex routes.")
+        }
+
+        let role = normalizedCodexMessageRole(rawRole)
+        return [
+            "type": "message",
+            "role": role,
+            "content": convertMessageContentToCodexParts(role: role, content: object["content"])
+        ]
+    }
+
+    private func normalizedCodexMessageRole(_ role: String?) -> String {
+        switch role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "system", "developer":
+            return "developer"
+        case "assistant":
+            return "assistant"
+        default:
+            return "user"
+        }
     }
 
     private func hoistReasoningAliases(into payload: inout [String: Any]) {
@@ -1465,7 +2101,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             guard let item = raw as? [String: Any],
                   let type = item["type"] as? String else { continue }
 
-            if type == "text", let text = item["text"] as? String {
+            if (type == "text" || type == "input_text" || type == "output_text"),
+               let text = item["text"] as? String {
                 parts.append(["type": textType, "text": text])
                 continue
             }
@@ -1473,6 +2110,13 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             if type == "image_url",
                let image = item["image_url"] as? [String: Any],
                let url = image["url"] as? String,
+               ["user", "developer", "system"].contains(role) {
+                parts.append(["type": "input_image", "image_url": url])
+                continue
+            }
+
+            if type == "input_image",
+               let url = item["image_url"] as? String,
                ["user", "developer", "system"].contains(role) {
                 parts.append(["type": "input_image", "image_url": url])
                 continue
@@ -2690,6 +3334,17 @@ private struct UpstreamResponse {
     var body: Data
 }
 
+private struct UpstreamStreamingResponse {
+    var statusCode: Int
+    var headers: [String: String]
+    var body: AsyncThrowingStream<Data, Error>
+}
+
+private enum UpstreamStreamingResult {
+    case buffered(UpstreamResponse)
+    case streaming(UpstreamStreamingResponse)
+}
+
 private struct SSEEvent {
     var event: String?
     var data: String
@@ -2711,6 +3366,93 @@ private struct RetryFailureInfo {
 private struct ErrorSignals {
     var normalized: String
     var brief: String
+}
+
+private struct NormalizedUsageCounts {
+    var promptTokens: Int?
+    var completionTokens: Int?
+    var totalTokens: Int?
+}
+
+private final class StreamingUsageAccumulator: @unchecked Sendable {
+    private var buffer = Data()
+    private var latestUsage: [String: Any]?
+
+    func consume(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        buffer.append(chunk)
+        processCompleteEvents()
+    }
+
+    func finalUsage() -> [String: Any]? {
+        processCompleteEvents(flushRemainder: true)
+        return latestUsage
+    }
+
+    private func processCompleteEvents(flushRemainder: Bool = false) {
+        while let range = nextEventDelimiterRange(in: buffer) {
+            let eventBlock = buffer.subdata(in: 0..<range.lowerBound)
+            buffer.removeSubrange(0..<range.upperBound)
+            processEventBlock(eventBlock)
+        }
+
+        if flushRemainder, !buffer.isEmpty {
+            processEventBlock(buffer)
+            buffer.removeAll(keepingCapacity: false)
+        }
+    }
+
+    private func nextEventDelimiterRange(in data: Data) -> Range<Data.Index>? {
+        let unixRange = data.range(of: Data("\n\n".utf8))
+        let windowsRange = data.range(of: Data("\r\n\r\n".utf8))
+
+        switch (unixRange, windowsRange) {
+        case let (lhs?, rhs?):
+            return lhs.lowerBound < rhs.lowerBound ? lhs : rhs
+        case let (lhs?, nil):
+            return lhs
+        case let (nil, rhs?):
+            return rhs
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private func processEventBlock(_ block: Data) {
+        guard !block.isEmpty else { return }
+
+        var normalizedBlock = block
+        normalizedBlock.append(Data("\n\n".utf8))
+
+        guard let text = String(data: normalizedBlock, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return
+        }
+
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n")
+        let dataLines = lines.compactMap { line -> String? in
+            guard line.hasPrefix("data:") else { return nil }
+            return line.replacingOccurrences(of: "data:", with: "").trimmingCharacters(in: .whitespaces)
+        }
+        let payloadText = dataLines.joined(separator: "\n")
+        guard payloadText != "[DONE]",
+              let payloadData = payloadText.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+            return
+        }
+
+        if let usage = parsed["usage"] as? [String: Any] {
+            latestUsage = usage
+            return
+        }
+
+        if let response = parsed["response"] as? [String: Any],
+           let usage = response["usage"] as? [String: Any] {
+            latestUsage = usage
+        }
+    }
 }
 
 private struct ChatStreamState {

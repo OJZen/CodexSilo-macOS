@@ -135,6 +135,7 @@
 "proxy.available_accounts_format" = "可用账号：%@";
 "proxy.action.refresh_status" = "刷新状态";
 "proxy.action.test_live_request" = "测试真实请求";
+"proxy.action.reset_metrics" = "重置统计";
 "proxy.action.start_api_proxy" = "启动 API 代理";
 "proxy.action.stop_api_proxy" = "停止 API 代理";
 "proxy.start_on_launch" = "启动时自动运行";
@@ -144,6 +145,19 @@
 "proxy.detail.api_key" = "API 密钥";
 "proxy.detail.active_routed_account" = "当前路由账号";
 "proxy.detail.last_error" = "最近错误";
+"proxy.detail.request_metrics" = "请求统计";
+"proxy.detail.last_response_at" = "最近响应";
+"proxy.metric.in_flight_format" = "并发：%@";
+"proxy.metric.total_requests_format" = "请求：%@";
+"proxy.metric.total_tokens_format" = "Tokens：%@";
+"proxy.metric.in_flight_label" = "当前并发请求";
+"proxy.metric.total_requests_label" = "请求总数";
+"proxy.metric.successful_requests_label" = "成功请求数";
+"proxy.metric.failed_requests_label" = "失败请求数";
+"proxy.metric.prompt_tokens_label" = "输入 Tokens";
+"proxy.metric.completion_tokens_label" = "输出 Tokens";
+"proxy.metric.total_tokens_label" = "累计 Tokens";
+"proxy.value.never" = "从未";
 "proxy.value.generated_after_start" = "启动后生成";
 "proxy.value.generated_after_first_start" = "首次启动后生成";
 "proxy.info.no_request_matched" = "尚无请求命中";
@@ -166,6 +180,8 @@
 "proxy.notice.api_proxy_stopped" = "API 代理已停止";
 "proxy.notice.api_key_refreshed" = "API 密钥已刷新";
 "proxy.notice.auto_start_updated" = "默认启动设置已更新";
+"proxy.notice.metrics_reset" = "代理统计已重置";
+"proxy.log.codex_parameters_stripped_format" = "转发到 Codex 上游前已移除不受支持的参数：%@。";
 "proxy.notice.test_request_succeeded_format" = "通过 %@ 的真实测试成功：%@";
 "proxy.notice.test_request_requires_running_proxy" = "请先启动 API 代理，再执行真实测试。";
 "proxy.notice.test_request_missing_credentials" = "代理缺少基础 URL 或 API 密钥。请重新启动后再试。";
@@ -262,6 +278,7 @@
 "error.proxy_runtime.health_check_failed" = "Swift 代理未通过健康检查";
 "error.proxy_runtime.unsupported_route" = "当前反代只支持已配置的 OpenAI 兼容路由。";
 "error.proxy_runtime.no_accounts_available" = "暂无可用于代理的账号，请先添加并授权账号";
+"error.proxy_runtime.reset_metrics_in_flight" = "请等待当前并发请求完成后再重置代理统计。";
 "error.proxy_runtime.all_accounts_unavailable" = "所有账号均不可用，请稍后重试。";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "所有账号均不可用：%@";
 "error.proxy_runtime.upstream_failed_with_more_format" = "请求 Codex 上游失败: %@ | 另有 %@ 个账号失败";

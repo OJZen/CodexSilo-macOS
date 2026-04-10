@@ -14,6 +14,7 @@ struct AccountsStore: Codable, Equatable {
     var currentSelection: CurrentAccountSelection?
     var accountsOverviewCollapsed: Bool = false
     var proxyLiveTestLogs: [ProxyLiveTestLogEntry] = []
+    var proxyMetrics: ApiProxyMetrics = .empty
     var settings: AppSettings = .defaultValue
 
     enum CodingKeys: String, CodingKey {
@@ -22,6 +23,7 @@ struct AccountsStore: Codable, Equatable {
         case currentSelection
         case accountsOverviewCollapsed
         case proxyLiveTestLogs
+        case proxyMetrics
         case settings
     }
 
@@ -31,6 +33,7 @@ struct AccountsStore: Codable, Equatable {
         currentSelection: CurrentAccountSelection? = nil,
         accountsOverviewCollapsed: Bool = false,
         proxyLiveTestLogs: [ProxyLiveTestLogEntry] = [],
+        proxyMetrics: ApiProxyMetrics = .empty,
         settings: AppSettings = .defaultValue
     ) {
         self.version = version
@@ -38,6 +41,7 @@ struct AccountsStore: Codable, Equatable {
         self.currentSelection = currentSelection
         self.accountsOverviewCollapsed = accountsOverviewCollapsed
         self.proxyLiveTestLogs = proxyLiveTestLogs
+        self.proxyMetrics = proxyMetrics
         self.settings = settings
     }
 
@@ -48,6 +52,7 @@ struct AccountsStore: Codable, Equatable {
         currentSelection = try container.decodeIfPresent(CurrentAccountSelection.self, forKey: .currentSelection)
         accountsOverviewCollapsed = try container.decodeIfPresent(Bool.self, forKey: .accountsOverviewCollapsed) ?? false
         proxyLiveTestLogs = try container.decodeIfPresent([ProxyLiveTestLogEntry].self, forKey: .proxyLiveTestLogs) ?? []
+        proxyMetrics = try container.decodeIfPresent(ApiProxyMetrics.self, forKey: .proxyMetrics) ?? .empty
         settings = try container.decodeIfPresent(AppSettings.self, forKey: .settings) ?? .defaultValue
     }
 
@@ -58,6 +63,7 @@ struct AccountsStore: Codable, Equatable {
         try container.encodeIfPresent(currentSelection, forKey: .currentSelection)
         try container.encode(accountsOverviewCollapsed, forKey: .accountsOverviewCollapsed)
         try container.encode(proxyLiveTestLogs, forKey: .proxyLiveTestLogs)
+        try container.encode(proxyMetrics, forKey: .proxyMetrics)
         try container.encode(settings, forKey: .settings)
     }
 }
@@ -636,6 +642,54 @@ struct AppSettingsPatch {
     var locale: String? = nil
 }
 
+struct ApiProxyMetrics: Codable, Equatable {
+    var inFlightRequests: Int
+    var totalRequests: Int
+    var successfulRequests: Int
+    var failedRequests: Int
+    var promptTokens: Int
+    var completionTokens: Int
+    var totalTokens: Int
+    var lastResponseAt: Int64?
+
+    init(
+        inFlightRequests: Int,
+        totalRequests: Int,
+        successfulRequests: Int,
+        failedRequests: Int,
+        promptTokens: Int,
+        completionTokens: Int,
+        totalTokens: Int,
+        lastResponseAt: Int64?
+    ) {
+        self.inFlightRequests = inFlightRequests
+        self.totalRequests = totalRequests
+        self.successfulRequests = successfulRequests
+        self.failedRequests = failedRequests
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.lastResponseAt = lastResponseAt
+    }
+
+    static let empty = ApiProxyMetrics(
+        inFlightRequests: 0,
+        totalRequests: 0,
+        successfulRequests: 0,
+        failedRequests: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        lastResponseAt: nil
+    )
+
+    var persistedValue: ApiProxyMetrics {
+        var copy = self
+        copy.inFlightRequests = 0
+        return copy
+    }
+}
+
 struct ApiProxyStatus: Codable, Equatable {
     var running: Bool
     var port: Int?
@@ -646,6 +700,7 @@ struct ApiProxyStatus: Codable, Equatable {
     var activeAccountID: String?
     var activeAccountLabel: String?
     var lastError: String?
+    var metrics: ApiProxyMetrics
 
     init(
         running: Bool,
@@ -656,7 +711,8 @@ struct ApiProxyStatus: Codable, Equatable {
         availableAccounts: Int,
         activeAccountID: String?,
         activeAccountLabel: String?,
-        lastError: String?
+        lastError: String?,
+        metrics: ApiProxyMetrics = .empty
     ) {
         self.running = running
         self.port = port
@@ -667,6 +723,7 @@ struct ApiProxyStatus: Codable, Equatable {
         self.activeAccountID = activeAccountID
         self.activeAccountLabel = activeAccountLabel
         self.lastError = lastError
+        self.metrics = metrics
     }
 
     static let idle = ApiProxyStatus(
@@ -678,7 +735,8 @@ struct ApiProxyStatus: Codable, Equatable {
         availableAccounts: 0,
         activeAccountID: nil,
         activeAccountLabel: nil,
-        lastError: nil
+        lastError: nil,
+        metrics: .empty
     )
 }
 
@@ -690,6 +748,7 @@ struct ProxyLiveTestResult: Equatable {
 struct ProxyLiveTestLogEntry: Codable, Equatable, Identifiable {
     enum Status: String, Codable, Equatable {
         case success
+        case warning
         case error
     }
 

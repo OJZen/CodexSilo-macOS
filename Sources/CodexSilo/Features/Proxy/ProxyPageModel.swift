@@ -12,15 +12,19 @@ final class ProxyPageModel: ObservableObject {
     private enum Defaults {
         static let preferredPort = 8787
         static let liveTestErrorNoticeDelay = Duration.seconds(12)
+        static let autoRefreshInterval = Duration.seconds(1)
     }
 
     private let coordinator: ProxyCoordinator
     private let settingsCoordinator: SettingsCoordinator
     private let dateProvider: DateProviding
     private let runtimePlatform: RuntimePlatform
+    private let autoRefreshInterval: Duration
     private let noticeScheduler = NoticeAutoDismissScheduler()
     private var hasLoaded = false
     private var didRunLaunchBootstrap = false
+    private var isPageVisible = false
+    private var autoRefreshTask: Task<Void, Never>?
 
     @Published var proxyStatus: ApiProxyStatus = .idle
     @Published var liveTestLogs: [ProxyLiveTestLogEntry] = []
@@ -42,12 +46,18 @@ final class ProxyPageModel: ObservableObject {
         coordinator: ProxyCoordinator,
         settingsCoordinator: SettingsCoordinator,
         dateProvider: DateProviding = SystemDateProvider(),
-        runtimePlatform: RuntimePlatform = PlatformCapabilities.currentPlatform
+        runtimePlatform: RuntimePlatform = PlatformCapabilities.currentPlatform,
+        autoRefreshInterval: Duration = Defaults.autoRefreshInterval
     ) {
         self.coordinator = coordinator
         self.settingsCoordinator = settingsCoordinator
         self.dateProvider = dateProvider
         self.runtimePlatform = runtimePlatform
+        self.autoRefreshInterval = autoRefreshInterval
+    }
+
+    deinit {
+        autoRefreshTask?.cancel()
     }
 
     func bootstrapOnAppLaunch(using settings: AppSettings) async {
@@ -69,6 +79,7 @@ final class ProxyPageModel: ObservableObject {
     }
 
     func loadIfNeeded() async {
+        isPageVisible = true
         if !hasLoaded {
             await load()
         } else {
@@ -77,7 +88,13 @@ final class ProxyPageModel: ObservableObject {
     }
 
     func refreshForTabEntry() async {
+        isPageVisible = true
         await refreshStatusOnly()
+    }
+
+    func handlePageDisappear() {
+        isPageVisible = false
+        stopAutoRefreshLoop()
     }
 
     func load() async {
@@ -140,6 +157,21 @@ final class ProxyPageModel: ObservableObject {
             applyStatus(status)
             lastRefreshedAt = dateProvider.unixSecondsNow()
             notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.api_key_refreshed"))
+        } catch {
+            notice = NoticeMessage(style: .error, text: error.localizedDescription)
+        }
+    }
+
+    func resetMetrics() async {
+        guard !testingLiveRequest else { return }
+        loading = true
+        defer { loading = false }
+
+        do {
+            let status = try await coordinator.resetMetrics()
+            applyStatus(status)
+            lastRefreshedAt = dateProvider.unixSecondsNow()
+            notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.metrics_reset"))
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
         }
@@ -217,6 +249,7 @@ final class ProxyPageModel: ObservableObject {
         setIfChanged(\.proxyStatus, nextState.proxyStatus)
         setIfChanged(\.preferredPortText, nextState.preferredPortText)
         setIfChanged(\.autoStartProxy, nextState.autoStartProxy)
+        reconcileAutoRefreshLoop()
     }
 
     private var currentPresentationState: ProxyPresentationState {
@@ -233,5 +266,42 @@ final class ProxyPageModel: ObservableObject {
     ) {
         guard self[keyPath: keyPath] != newValue else { return }
         self[keyPath: keyPath] = newValue
+    }
+
+    private func reconcileAutoRefreshLoop() {
+        guard isPageVisible, runtimePlatform == .macOS, proxyStatus.running else {
+            stopAutoRefreshLoop()
+            return
+        }
+
+        guard autoRefreshTask == nil else { return }
+
+        autoRefreshTask = Task { [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: autoRefreshInterval)
+                guard !Task.isCancelled else { return }
+                await self.performAutoRefreshTick()
+            }
+        }
+    }
+
+    private func stopAutoRefreshLoop() {
+        autoRefreshTask?.cancel()
+        autoRefreshTask = nil
+    }
+
+    private func performAutoRefreshTick() async {
+        guard isPageVisible, runtimePlatform == .macOS, proxyStatus.running else {
+            stopAutoRefreshLoop()
+            return
+        }
+
+        guard !loading, !testingLiveRequest else { return }
+
+        let status = await coordinator.loadStatus()
+        applyStatus(status)
+        lastRefreshedAt = dateProvider.unixSecondsNow()
     }
 }

@@ -99,6 +99,34 @@ struct ApiProxySectionView: View {
                     headline: model.proxyStatus.lastError ?? L10n.tr("common.none"),
                     detailText: ""
                 )
+
+                Divider()
+
+                ProxyValueRow(
+                    title: L10n.tr("proxy.detail.request_metrics"),
+                    value: requestMetricsValue,
+                    canCopy: false
+                ) {
+                    Button {
+                        Task { await model.resetMetrics() }
+                    } label: {
+                        Text(L10n.tr("proxy.action.reset_metrics"))
+                    }
+                    .codexsiloActionButtonStyle()
+                    .disabled(
+                        model.controlsBusy
+                            || model.proxyStatus.metrics == .empty
+                            || model.proxyStatus.metrics.inFlightRequests > 0
+                    )
+                }
+
+                Divider()
+
+                ProxyDetailRow(
+                    title: L10n.tr("proxy.detail.last_response_at"),
+                    headline: lastResponseHeadline,
+                    detailText: ""
+                )
             }
         }
     }
@@ -109,6 +137,9 @@ struct ApiProxySectionView: View {
                 statusChip
                 metricChip(text: L10n.tr("proxy.port_line_format", model.proxyStatus.port.map(String.init) ?? "--"))
                 metricChip(text: L10n.tr("proxy.available_accounts_format", String(model.proxyStatus.availableAccounts)))
+                metricChip(text: L10n.tr("proxy.metric.in_flight_format", String(model.proxyStatus.metrics.inFlightRequests)))
+                metricChip(text: L10n.tr("proxy.metric.total_requests_format", String(model.proxyStatus.metrics.totalRequests)))
+                metricChip(text: L10n.tr("proxy.metric.total_tokens_format", String(model.proxyStatus.metrics.totalTokens)))
                 Spacer(minLength: 0)
             }
 
@@ -116,8 +147,33 @@ struct ApiProxySectionView: View {
                 statusChip
                 metricChip(text: L10n.tr("proxy.port_line_format", model.proxyStatus.port.map(String.init) ?? "--"))
                 metricChip(text: L10n.tr("proxy.available_accounts_format", String(model.proxyStatus.availableAccounts)))
+                metricChip(text: L10n.tr("proxy.metric.in_flight_format", String(model.proxyStatus.metrics.inFlightRequests)))
+                metricChip(text: L10n.tr("proxy.metric.total_requests_format", String(model.proxyStatus.metrics.totalRequests)))
+                metricChip(text: L10n.tr("proxy.metric.total_tokens_format", String(model.proxyStatus.metrics.totalTokens)))
             }
         }
+    }
+
+    private var requestMetricsValue: String {
+        let metrics = model.proxyStatus.metrics
+        return [
+            "\(L10n.tr("proxy.metric.in_flight_label")): \(metrics.inFlightRequests)",
+            "\(L10n.tr("proxy.metric.total_requests_label")): \(metrics.totalRequests)",
+            "\(L10n.tr("proxy.metric.successful_requests_label")): \(metrics.successfulRequests)",
+            "\(L10n.tr("proxy.metric.failed_requests_label")): \(metrics.failedRequests)",
+            "\(L10n.tr("proxy.metric.prompt_tokens_label")): \(metrics.promptTokens)",
+            "\(L10n.tr("proxy.metric.completion_tokens_label")): \(metrics.completionTokens)",
+            "\(L10n.tr("proxy.metric.total_tokens_label")): \(metrics.totalTokens)"
+        ].joined(separator: "\n")
+    }
+
+    private var lastResponseHeadline: String {
+        guard let unixSeconds = model.proxyStatus.metrics.lastResponseAt else {
+            return L10n.tr("proxy.value.never")
+        }
+
+        return Date(timeIntervalSince1970: TimeInterval(unixSeconds))
+            .formatted(date: .abbreviated, time: .standard)
     }
 
     private var statusChip: some View {

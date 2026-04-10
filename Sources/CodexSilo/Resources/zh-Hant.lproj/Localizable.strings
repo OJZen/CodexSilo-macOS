@@ -133,6 +133,7 @@
 "proxy.available_accounts_format" = "可用帳號：%@";
 "proxy.action.refresh_status" = "重新整理狀態";
 "proxy.action.test_live_request" = "測試真實請求";
+"proxy.action.reset_metrics" = "重設統計";
 "proxy.action.start_api_proxy" = "啟動 API 代理";
 "proxy.action.stop_api_proxy" = "停止 API 代理";
 "proxy.start_on_launch" = "啟動時自動運行";
@@ -140,6 +141,19 @@
 "proxy.detail.api_key" = "API 金鑰";
 "proxy.detail.active_routed_account" = "目前路由帳號";
 "proxy.detail.last_error" = "最近錯誤";
+"proxy.detail.request_metrics" = "Request metrics";
+"proxy.detail.last_response_at" = "Last response";
+"proxy.metric.in_flight_format" = "In flight: %@";
+"proxy.metric.total_requests_format" = "Requests: %@";
+"proxy.metric.total_tokens_format" = "Tokens: %@";
+"proxy.metric.in_flight_label" = "In-flight requests";
+"proxy.metric.total_requests_label" = "Total requests";
+"proxy.metric.successful_requests_label" = "Successful requests";
+"proxy.metric.failed_requests_label" = "Failed requests";
+"proxy.metric.prompt_tokens_label" = "Prompt tokens";
+"proxy.metric.completion_tokens_label" = "Completion tokens";
+"proxy.metric.total_tokens_label" = "Total tokens";
+"proxy.value.never" = "Never";
 "proxy.value.generated_after_start" = "啟動後生成";
 "proxy.value.generated_after_first_start" = "首次啟動後生成";
 "proxy.info.no_request_matched" = "尚無請求命中";
@@ -162,6 +176,8 @@
 "proxy.notice.api_proxy_stopped" = "API 代理已停止";
 "proxy.notice.api_key_refreshed" = "API 金鑰已刷新";
 "proxy.notice.auto_start_updated" = "自動啟動設定已更新";
+"proxy.notice.metrics_reset" = "代理統計已重設";
+"proxy.log.codex_parameters_stripped_format" = "轉發到 Codex 上游前已移除不支援的參數：%@。";
 "proxy.notice.test_request_succeeded_format" = "透過 %@ 的真實測試成功：%@";
 "proxy.notice.test_request_requires_running_proxy" = "請先啟動 API 代理，再執行真實測試。";
 "proxy.notice.test_request_missing_credentials" = "代理缺少基礎 URL 或 API 金鑰。請重新啟動後再試。";
@@ -248,6 +264,7 @@
 "error.proxy_runtime.health_check_failed" = "Swift proxy failed health check";
 "error.proxy_runtime.unsupported_route" = "Proxy only supports the configured OpenAI-compatible routes.";
 "error.proxy_runtime.no_accounts_available" = "No accounts available for proxy. Add and authorize at least one account first.";
+"error.proxy_runtime.reset_metrics_in_flight" = "請等待目前並發請求完成後再重設代理統計。";
 "error.proxy_runtime.all_accounts_unavailable" = "All accounts are unavailable. Please retry later.";
 "error.proxy_runtime.all_accounts_unavailable_with_summary_format" = "All accounts are unavailable: %@";
 "error.proxy_runtime.upstream_failed_with_more_format" = "Codex upstream request failed: %@ | %@ more accounts failed";

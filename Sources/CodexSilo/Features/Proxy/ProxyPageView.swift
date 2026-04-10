@@ -17,6 +17,9 @@ struct ProxyPageView: View {
         .task {
             await model.loadIfNeeded()
         }
+        .onDisappear {
+            model.handlePageDisappear()
+        }
     }
 
     private var pageHeader: some View {
