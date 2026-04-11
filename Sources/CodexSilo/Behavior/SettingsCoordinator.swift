@@ -293,17 +293,20 @@ actor SettingsCoordinator {
     private let authRepository: AuthRepository?
     private let launchAtStartupService: LaunchAtStartupServiceProtocol
     private let dataTransferCodec: AccountsDataTransferCodec
+    private let logger: AppLogger
 
     init(
         storeRepository: AccountsStoreRepository,
         authRepository: AuthRepository? = nil,
         launchAtStartupService: LaunchAtStartupServiceProtocol,
-        dataTransferCodec: AccountsDataTransferCodec = AccountsDataTransferCodec()
+        dataTransferCodec: AccountsDataTransferCodec = AccountsDataTransferCodec(),
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.storeRepository = storeRepository
         self.authRepository = authRepository
         self.launchAtStartupService = launchAtStartupService
         self.dataTransferCodec = dataTransferCodec
+        self.logger = logger
     }
 
     func currentSettings() throws -> AppSettings {
@@ -316,6 +319,19 @@ actor SettingsCoordinator {
 
     func updateSettings(_ patch: AppSettingsPatch) throws -> AppSettings {
         let launchAtStartupPatch = patch.launchAtStartup
+        logger.info(
+            category: .settings,
+            event: "update_started",
+            message: "Updating application settings.",
+            metadata: [
+                "launch_at_startup": patch.launchAtStartup.map { $0 ? "true" : "false" } ?? "",
+                "auto_refresh_accounts": patch.autoRefreshAccounts.map { $0 ? "true" : "false" } ?? "",
+                "auto_smart_switch": patch.autoSmartSwitch.map { $0 ? "true" : "false" } ?? "",
+                "auto_start_api_proxy": patch.autoStartApiProxy.map { $0 ? "true" : "false" } ?? "",
+                "allow_lan_proxy_access": patch.allowLanProxyAccess.map { $0 ? "true" : "false" } ?? "",
+                "locale": patch.locale ?? ""
+            ]
+        )
 
         var store = try storeRepository.loadStore()
         var settings = store.settings
@@ -334,6 +350,12 @@ actor SettingsCoordinator {
             try launchAtStartupService.setEnabled(launchAtStartupPatch)
         }
 
+        logger.info(
+            category: .settings,
+            event: "update_succeeded",
+            message: "Application settings updated successfully."
+        )
+
         return settings
     }
 
@@ -345,15 +367,47 @@ actor SettingsCoordinator {
 
     func syncLaunchAtStartupFromStore() throws {
         let settings = try storeRepository.loadStore().settings
+        logger.debug(
+            category: .settings,
+            event: "sync_launch_at_startup_from_store",
+            message: "Synchronizing launch-at-startup state from persisted settings.",
+            metadata: ["enabled": settings.launchAtStartup ? "true" : "false"]
+        )
         try launchAtStartupService.syncWithStoreValue(settings.launchAtStartup)
     }
 
     func exportAccountData(to url: URL, password: String) throws {
+        let operationID = UUID().uuidString
         let store = try storeRepository.loadStore()
+        logger.info(
+            category: .settings,
+            event: "export_started",
+            message: "Starting encrypted account data export.",
+            metadata: [
+                "file": url.lastPathComponent,
+                "accounts": String(store.accounts.count)
+            ],
+            operationID: operationID
+        )
         try dataTransferCodec.export(store: store, to: url, password: password)
+        logger.info(
+            category: .settings,
+            event: "export_succeeded",
+            message: "Encrypted account data export completed.",
+            metadata: ["file": url.lastPathComponent],
+            operationID: operationID
+        )
     }
 
     func importAccountData(from url: URL, password: String) throws -> AccountsStore {
+        let operationID = UUID().uuidString
+        logger.info(
+            category: .settings,
+            event: "import_started",
+            message: "Starting encrypted account data import.",
+            metadata: ["file": url.lastPathComponent],
+            operationID: operationID
+        )
         let store = try dataTransferCodec.importStore(from: url, password: password)
         try storeRepository.saveStore(store)
         if let authRepository,
@@ -367,6 +421,16 @@ actor SettingsCoordinator {
             try authRepository.writeCurrentAuth(selectedAccount.authJSON)
         }
         try launchAtStartupService.syncWithStoreValue(store.settings.launchAtStartup)
+        logger.info(
+            category: .settings,
+            event: "import_succeeded",
+            message: "Encrypted account data import completed.",
+            metadata: [
+                "file": url.lastPathComponent,
+                "accounts": String(store.accounts.count)
+            ],
+            operationID: operationID
+        )
         return store
     }
 }

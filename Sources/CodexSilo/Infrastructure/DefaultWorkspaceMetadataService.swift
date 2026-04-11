@@ -9,14 +9,17 @@ final class DefaultWorkspaceMetadataService: WorkspaceMetadataService, @unchecke
     private let session: URLSession
     private let configPath: URL
     private let endpointCoordinator: EndpointRequestCoordinator
+    private let logger: AppLogger
 
     init(
         session: URLSession = .shared,
         configPath: URL,
-        endpointPreferenceStore: EndpointPreferenceStore = .shared
+        endpointPreferenceStore: EndpointPreferenceStore = .shared,
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.session = session
         self.configPath = configPath
+        self.logger = logger
         self.endpointCoordinator = EndpointRequestCoordinator(
             session: session,
             preferenceStore: endpointPreferenceStore
@@ -24,6 +27,16 @@ final class DefaultWorkspaceMetadataService: WorkspaceMetadataService, @unchecke
     }
 
     func fetchWorkspaceMetadata(accessToken: String) async throws -> [WorkspaceMetadata] {
+        let operationID = UUID().uuidString
+        let startedAt = Date()
+        let candidateCount = resolveAccountURLs().count
+        logger.debug(
+            category: .workspace,
+            event: "fetch_started",
+            message: "Starting workspace metadata fetch.",
+            metadata: ["candidate_count": String(candidateCount)],
+            operationID: operationID
+        )
         #if DEBUG
         debugLog("starting workspace metadata fetch with \(resolveAccountURLs().count) candidate endpoints")
         #endif
@@ -48,6 +61,17 @@ final class DefaultWorkspaceMetadataService: WorkspaceMetadataService, @unchecke
                     structure: $0.structure
                 )
             }
+            logger.info(
+                category: .workspace,
+                event: "fetch_succeeded",
+                message: "Workspace metadata fetch completed.",
+                metadata: [
+                    "endpoint": result.endpoint,
+                    "items": String(metadata.count),
+                    "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+                ],
+                operationID: operationID
+            )
             #if DEBUG
             let preview = metadata.prefix(3).map {
                 "\($0.accountID):\($0.workspaceName ?? "<nil>"):\($0.structure ?? "<nil>")"
@@ -62,6 +86,16 @@ final class DefaultWorkspaceMetadataService: WorkspaceMetadataService, @unchecke
             debugLog("workspace metadata fetch failed across all endpoints: \(errors.joined(separator: " | "))")
             #endif
             let preview = errors.prefix(2).joined(separator: " | ")
+            logger.error(
+                category: .workspace,
+                event: "fetch_failed",
+                message: "Workspace metadata fetch failed across all endpoints.",
+                metadata: [
+                    "failure_preview": preview,
+                    "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+                ],
+                operationID: operationID
+            )
             if errors.count > 2 {
                 throw AppError.network(L10n.tr("error.usage.request_failed_with_more_format", preview, String(errors.count - 2)))
             }

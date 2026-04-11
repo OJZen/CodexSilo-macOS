@@ -54,6 +54,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
     private let dateProvider: DateProviding
     private let snapshotFreshnessPolicy: AccountsSnapshotFreshnessPolicy
     private let accountsSyncExecutionPolicy: AccountsSyncExecutionPolicy
+    private let logger: AppLogger
     private var cloudReconciliationTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Void, Never>?
     private var workspaceMetadataRefreshTask: Task<Void, Never>?
@@ -79,6 +80,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         backgroundRefreshPolicy: BackgroundRefreshPolicy,
         dateProvider: DateProviding = SystemDateProvider(),
         snapshotFreshnessPolicy: AccountsSnapshotFreshnessPolicy = AccountsSnapshotFreshnessPolicy(),
+        logger: AppLogger = NoopAppLogger.shared,
         initialAccounts: [AccountSummary] = []
     ) {
         self.accountsCoordinator = accountsCoordinator
@@ -90,6 +92,7 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
         self.backgroundRefreshPolicy = backgroundRefreshPolicy
         self.dateProvider = dateProvider
         self.snapshotFreshnessPolicy = snapshotFreshnessPolicy
+        self.logger = logger
         self.accountsSyncExecutionPolicy = AccountsSyncExecutionPolicy(
             snapshotFreshnessPolicy: snapshotFreshnessPolicy
         )
@@ -98,6 +101,11 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
 
     func startBackgroundRefresh() {
         guard cloudReconciliationTask == nil else { return }
+        logger.info(
+            category: .tray,
+            event: "background_refresh_started",
+            message: "Started tray background refresh tasks."
+        )
         configureLocalAuthFileMonitoringIfNeeded()
         configureLocalConfigFileMonitoringIfNeeded()
         configureAccountsSnapshotPushHandlingIfNeeded()
@@ -137,6 +145,11 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
     }
 
     func stopBackgroundRefresh() {
+        logger.info(
+            category: .tray,
+            event: "background_refresh_stopped",
+            message: "Stopped tray background refresh tasks."
+        )
         cloudReconciliationTask?.cancel()
         cloudReconciliationTask = nil
         usageRefreshTask?.cancel()
@@ -158,6 +171,14 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
     func refreshNow(forceUsageRefresh: Bool) async {
         beginAccountsRefreshActivity()
         defer { endAccountsRefreshActivity() }
+        let operationID = UUID().uuidString
+        logger.debug(
+            category: .tray,
+            event: "refresh_started",
+            message: "Starting tray refresh.",
+            metadata: ["force_usage_refresh": forceUsageRefresh ? "true" : "false"],
+            operationID: operationID
+        )
         do {
             let latestAccounts = try await executeRefresh(
                 forceUsageRefresh: forceUsageRefresh,
@@ -166,12 +187,31 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
             accounts = latestAccounts
             scheduleWorkspaceMetadataRefresh(forceRemoteCheck: false)
             notice = nil
+            logger.info(
+                category: .tray,
+                event: "refresh_succeeded",
+                message: "Tray refresh completed.",
+                metadata: ["accounts": String(latestAccounts.count)],
+                operationID: operationID
+            )
         } catch {
             notice = error.localizedDescription
+            logger.error(
+                category: .tray,
+                event: "refresh_failed",
+                message: "Tray refresh failed.",
+                metadata: ["error": error.localizedDescription],
+                operationID: operationID
+            )
         }
     }
 
     func handleTrayMenuPresentation() async {
+        logger.debug(
+            category: .tray,
+            event: "menu_presented",
+            message: "Tray menu was presented."
+        )
         await refreshNow(forceUsageRefresh: true)
     }
 
@@ -200,8 +240,23 @@ final class TrayMenuModel: ObservableObject, AccountsManualRefreshServiceProtoco
                 await syncCurrentAccountSelection(accountID: selectedAccount.variantKey)
             }
             notice = nil
+            logger.info(
+                category: .tray,
+                event: "switch_account_succeeded",
+                message: "Switched account from tray menu.",
+                metadata: [
+                    "stored_account_id": id,
+                    "email": currentAccount.email ?? ""
+                ]
+            )
         } catch {
             notice = error.localizedDescription
+            logger.error(
+                category: .tray,
+                event: "switch_account_failed",
+                message: "Failed to switch account from tray menu.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 

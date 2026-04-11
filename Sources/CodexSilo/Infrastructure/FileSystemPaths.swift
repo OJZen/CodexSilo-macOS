@@ -8,6 +8,14 @@ struct FileSystemPaths {
     var proxyDaemonDataDirectory: URL
     var proxyDaemonKeyPath: URL
 
+    var logsDirectory: URL {
+        applicationSupportDirectory.appendingPathComponent("Logs", isDirectory: true)
+    }
+
+    var currentLogFilePath: URL {
+        logsDirectory.appendingPathComponent("app.log", isDirectory: false)
+    }
+
     static func live(fileManager: FileManager = .default) throws -> FileSystemPaths {
         let appSupportBase = try fileManager.url(
             for: .applicationSupportDirectory,

@@ -13,6 +13,7 @@ final class AccountsPageModel: ObservableObject {
     private let currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol?
     private let onLocalAccountsChanged: (([AccountSummary]) -> Void)?
     private let nowProvider: () -> Date
+    private let logger: AppLogger
     private let noticeScheduler = NoticeAutoDismissScheduler()
     private var prefersCollapsedOverview = false
     private var hasLoaded = false
@@ -43,6 +44,7 @@ final class AccountsPageModel: ObservableObject {
         currentAccountSelectionSyncService: CurrentAccountSelectionSyncServiceProtocol? = nil,
         onLocalAccountsChanged: (([AccountSummary]) -> Void)? = nil,
         nowProvider: @escaping () -> Date = Date.init,
+        logger: AppLogger = NoopAppLogger.shared,
         initialAccounts: [AccountSummary]? = nil,
         initialOverviewCollapsed: Bool = false
     ) {
@@ -52,6 +54,7 @@ final class AccountsPageModel: ObservableObject {
         self.currentAccountSelectionSyncService = currentAccountSelectionSyncService
         self.onLocalAccountsChanged = onLocalAccountsChanged
         self.nowProvider = nowProvider
+        self.logger = logger
         self.prefersCollapsedOverview = initialOverviewCollapsed
         self.state = initialAccounts.map { initialAccounts in
             Self.makeViewState(accounts: initialAccounts, sortMode: .remainingUsage)
@@ -74,18 +77,42 @@ final class AccountsPageModel: ObservableObject {
             applyAccounts(accounts)
             publishLocalAccounts(accounts)
             hasLoaded = true
+            logger.debug(
+                category: .accounts,
+                event: "page_load_succeeded",
+                message: "Accounts page loaded.",
+                metadata: ["accounts": String(accounts.count)]
+            )
         } catch {
             state = .error(message: error.localizedDescription)
             hasLoaded = true
+            logger.error(
+                category: .accounts,
+                event: "page_load_failed",
+                message: "Accounts page failed to load.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
     func refreshAccountsOnWindowPresentation() async {
-        guard !isManualRefreshing else { return }
+        guard !isManualRefreshing else {
+            logger.debug(
+                category: .accounts,
+                event: "window_refresh_skipped",
+                message: "Skipped window refresh because a manual refresh is in progress."
+            )
+            return
+        }
 
         let now = nowProvider()
         if let lastWindowPresentationRefreshAt,
            now.timeIntervalSince(lastWindowPresentationRefreshAt) < WindowPresentationRefreshPolicy.minimumInterval {
+            logger.debug(
+                category: .accounts,
+                event: "window_refresh_throttled",
+                message: "Skipped window refresh because the minimum interval has not elapsed."
+            )
             return
         }
         lastWindowPresentationRefreshAt = now
@@ -106,8 +133,20 @@ final class AccountsPageModel: ObservableObject {
             applyAccounts(accounts)
             publishAndSyncLocalAccountsMutation(accounts)
             notice = NoticeMessage(style: .success, text: L10n.tr("accounts.notice.imported_format", imported.label))
+            logger.info(
+                category: .accounts,
+                event: "import_current_auth_succeeded",
+                message: "Imported current auth from the accounts page.",
+                metadata: ["label": imported.label]
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .accounts,
+                event: "import_current_auth_failed",
+                message: "Failed to import current auth from the accounts page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -118,6 +157,11 @@ final class AccountsPageModel: ObservableObject {
     func addAccountViaLogin() {
         guard addAccountTask == nil else { return }
         isAdding = true
+        logger.info(
+            category: .accounts,
+            event: "page_add_account_started",
+            message: "Started add-account flow from the accounts page."
+        )
         addAccountTask = Task { [weak self] in
             guard let self else { return }
 
@@ -131,15 +175,32 @@ final class AccountsPageModel: ObservableObject {
                         style: .success,
                         text: L10n.tr("accounts.notice.imported_new_format", imported.label)
                     )
+                    self.logger.info(
+                        category: .accounts,
+                        event: "page_add_account_succeeded",
+                        message: "Add-account flow completed from the accounts page.",
+                        metadata: ["label": imported.label]
+                    )
                 }
             } catch {
                 if Task.isCancelled {
                     await MainActor.run {
                         self.notice = NoticeMessage(style: .info, text: "当前登录流程已取消。")
+                        self.logger.warning(
+                            category: .accounts,
+                            event: "page_add_account_cancelled",
+                            message: "Add-account flow was cancelled from the accounts page."
+                        )
                     }
                 } else {
                     await MainActor.run {
                         self.notice = NoticeMessage(style: .error, text: error.localizedDescription)
+                        self.logger.error(
+                            category: .accounts,
+                            event: "page_add_account_failed",
+                            message: "Add-account flow failed from the accounts page.",
+                            metadata: ["error": error.localizedDescription]
+                        )
                     }
                 }
             }
@@ -185,8 +246,23 @@ final class AccountsPageModel: ObservableObject {
                 ? "accounts.notice.imported_format"
                 : "accounts.notice.imported_new_format"
             notice = NoticeMessage(style: .success, text: L10n.tr(key, imported.label))
+            logger.info(
+                category: .accounts,
+                event: "import_document_succeeded",
+                message: "Imported account document from the accounts page.",
+                metadata: [
+                    "label": imported.label,
+                    "set_as_current": setAsCurrent ? "true" : "false"
+                ]
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .accounts,
+                event: "import_document_failed",
+                message: "Failed to import account document from the accounts page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -220,8 +296,20 @@ final class AccountsPageModel: ObservableObject {
                 syncCurrentAccountSelectionInBackground(accountID: savedAccount.variantKey)
             }
             notice = NoticeMessage(style: .success, text: "账户配置已保存。")
+            logger.info(
+                category: .accounts,
+                event: "save_account_editor_succeeded",
+                message: "Saved account configuration from the accounts page.",
+                metadata: ["label": savedAccount.label]
+            )
             return nil
         } catch {
+            logger.error(
+                category: .accounts,
+                event: "save_account_editor_failed",
+                message: "Failed to save account configuration from the accounts page.",
+                metadata: ["error": error.localizedDescription]
+            )
             return error.localizedDescription
         }
     }
@@ -231,9 +319,23 @@ final class AccountsPageModel: ObservableObject {
     }
 
     private func refreshUsage(showSuccessNotice: Bool) async {
-        guard !isManualRefreshing else { return }
+        guard !isManualRefreshing else {
+            logger.debug(
+                category: .accounts,
+                event: "manual_refresh_skipped",
+                message: "Skipped manual refresh because another refresh is in progress."
+            )
+            return
+        }
         isManualRefreshing = true
         defer { isManualRefreshing = false }
+        let operationID = UUID().uuidString
+        logger.info(
+            category: .accounts,
+            event: "manual_refresh_started",
+            message: "Started manual accounts refresh.",
+            operationID: operationID
+        )
 
         do {
             let result: AccountsRefreshResult
@@ -268,8 +370,25 @@ final class AccountsPageModel: ObservableObject {
                     : "accounts.notice.accounts_refreshed"
                 notice = NoticeMessage(style: .info, text: L10n.tr(noticeKey))
             }
+            logger.info(
+                category: .accounts,
+                event: "manual_refresh_completed",
+                message: "Manual accounts refresh completed.",
+                metadata: [
+                    "accounts": String(accounts.count),
+                    "result": result.failure == nil ? "success" : "partial_or_failed"
+                ],
+                operationID: operationID
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .accounts,
+                event: "manual_refresh_failed",
+                message: "Manual accounts refresh failed.",
+                metadata: ["error": error.localizedDescription],
+                operationID: operationID
+            )
         }
     }
 

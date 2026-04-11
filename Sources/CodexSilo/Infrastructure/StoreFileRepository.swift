@@ -21,13 +21,20 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
     private let paths: FileSystemPaths
     private let fileManager: FileManager
     private let dateProvider: DateProviding
+    private let logger: AppLogger
     private let cacheLock = NSLock()
     private var cachedStoreSnapshot: CachedStoreSnapshot?
 
-    init(paths: FileSystemPaths, fileManager: FileManager = .default, dateProvider: DateProviding = SystemDateProvider()) {
+    init(
+        paths: FileSystemPaths,
+        fileManager: FileManager = .default,
+        dateProvider: DateProviding = SystemDateProvider(),
+        logger: AppLogger = NoopAppLogger.shared
+    ) {
         self.paths = paths
         self.fileManager = fileManager
         self.dateProvider = dateProvider
+        self.logger = logger
     }
 
     func loadStore() throws -> AccountsStore {
@@ -41,6 +48,12 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         guard fingerprint != .missing else {
             let emptyStore = AccountsStore()
             cache(store: emptyStore, fingerprint: .missing)
+            logger.info(
+                category: .store,
+                event: "load_missing",
+                message: "Accounts store missing; returning empty store.",
+                metadata: ["path": paths.accountStorePath.lastPathComponent]
+            )
             return emptyStore
         }
 
@@ -48,23 +61,56 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         do {
             data = try Data(contentsOf: path)
         } catch {
+            logger.error(
+                category: .store,
+                event: "read_failed",
+                message: "Failed to read accounts store.",
+                metadata: [
+                    "path": path.lastPathComponent,
+                    "error": error.localizedDescription
+                ]
+            )
             throw AppError.io(L10n.tr("error.store.read_failed_format", error.localizedDescription))
         }
 
         do {
             let store = try decodeStore(from: data)
             cache(store: store, fingerprint: fingerprint)
+            logger.debug(
+                category: .store,
+                event: "load_succeeded",
+                message: "Accounts store loaded.",
+                metadata: [
+                    "accounts": String(store.accounts.count),
+                    "path": path.lastPathComponent
+                ]
+            )
             return store
         } catch {
             if let recoveredData = Self.extractFirstJSONObjectData(from: data),
                let recoveredStore = try? decodeStore(from: recoveredData) {
                 try saveStore(recoveredStore)
+                logger.warning(
+                    category: .store,
+                    event: "recovered_partial_json",
+                    message: "Recovered accounts store from partial JSON payload.",
+                    metadata: [
+                        "accounts": String(recoveredStore.accounts.count),
+                        "path": path.lastPathComponent
+                    ]
+                )
                 return recoveredStore
             }
 
             try backupCorruptedStore(raw: data)
             let emptyStore = AccountsStore()
             try saveStore(emptyStore)
+            logger.error(
+                category: .store,
+                event: "corrupted_reset",
+                message: "Accounts store was corrupted and has been reset to an empty store.",
+                metadata: ["path": path.lastPathComponent]
+            )
             return emptyStore
         }
     }
@@ -79,12 +125,30 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         do {
             data = try encoder.encode(store)
         } catch {
+            logger.error(
+                category: .store,
+                event: "serialize_failed",
+                message: "Failed to serialize accounts store.",
+                metadata: [
+                    "accounts": String(store.accounts.count),
+                    "error": error.localizedDescription
+                ]
+            )
             throw AppError.invalidData(L10n.tr("error.store.serialize_failed_format", error.localizedDescription))
         }
 
         try writeAtomically(data: data, to: paths.accountStorePath)
         let fingerprint = try fileFingerprint(at: paths.accountStorePath)
         cache(store: store, fingerprint: fingerprint)
+        logger.debug(
+            category: .store,
+            event: "save_succeeded",
+            message: "Accounts store saved.",
+            metadata: [
+                "accounts": String(store.accounts.count),
+                "path": paths.accountStorePath.lastPathComponent
+            ]
+        )
     }
 
     private func decodeStore(from data: Data) throws -> AccountsStore {
@@ -103,6 +167,15 @@ final class StoreFileRepository: AccountsStoreRepository, @unchecked Sendable {
         try fileManager.createDirectory(at: paths.applicationSupportDirectory, withIntermediateDirectories: true)
         try raw.write(to: backupPath, options: .atomic)
         Self.setPrivatePermissions(at: backupPath)
+        logger.warning(
+            category: .store,
+            event: "backup_corrupted_store",
+            message: "Backed up corrupted accounts store payload.",
+            metadata: [
+                "backup_file": filename,
+                "bytes": String(raw.count)
+            ]
+        )
     }
 
     private func writeAtomically(data: Data, to destination: URL) throws {

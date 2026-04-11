@@ -3,12 +3,23 @@ import Foundation
 final class GitHubUpdateService: UpdateCheckingService, @unchecked Sendable {
     private let session: URLSession
     private let endpoint = URL(string: "https://api.github.com/repos/OJZen/CodexSilo-macOS/releases/latest")!
+    private let logger: AppLogger
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, logger: AppLogger = NoopAppLogger.shared) {
         self.session = session
+        self.logger = logger
     }
 
     func checkForUpdates(currentVersion: String) async throws -> PendingUpdateInfo? {
+        let operationID = UUID().uuidString
+        let startedAt = Date()
+        logger.debug(
+            category: .update,
+            event: "check_started",
+            message: "Checking for updates from GitHub Releases.",
+            metadata: ["current_version": currentVersion],
+            operationID: operationID
+        )
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 12
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -16,6 +27,13 @@ final class GitHubUpdateService: UpdateCheckingService, @unchecked Sendable {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            logger.error(
+                category: .update,
+                event: "check_failed",
+                message: "GitHub update check returned an invalid response.",
+                metadata: ["duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))],
+                operationID: operationID
+            )
             throw AppError.network(L10n.tr("error.update.github_api_invalid_response"))
         }
 
@@ -23,9 +41,31 @@ final class GitHubUpdateService: UpdateCheckingService, @unchecked Sendable {
         let latestVersion = payload.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
 
         guard VersionComparator.isNewer(latest: latestVersion, current: currentVersion) else {
+            logger.info(
+                category: .update,
+                event: "check_no_update",
+                message: "No update is available.",
+                metadata: [
+                    "current_version": currentVersion,
+                    "latest_version": latestVersion,
+                    "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+                ],
+                operationID: operationID
+            )
             return nil
         }
 
+        logger.info(
+            category: .update,
+            event: "check_update_available",
+            message: "Update is available.",
+            metadata: [
+                "current_version": currentVersion,
+                "latest_version": latestVersion,
+                "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+            ],
+            operationID: operationID
+        )
         return PendingUpdateInfo(
             currentVersion: currentVersion,
             latestVersion: latestVersion,

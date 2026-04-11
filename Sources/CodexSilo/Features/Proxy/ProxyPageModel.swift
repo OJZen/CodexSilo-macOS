@@ -20,6 +20,7 @@ final class ProxyPageModel: ObservableObject {
     private let dateProvider: DateProviding
     private let runtimePlatform: RuntimePlatform
     private let autoRefreshInterval: Duration
+    private let logger: AppLogger
     private let noticeScheduler = NoticeAutoDismissScheduler()
     private var hasLoaded = false
     private var didRunLaunchBootstrap = false
@@ -47,13 +48,15 @@ final class ProxyPageModel: ObservableObject {
         settingsCoordinator: SettingsCoordinator,
         dateProvider: DateProviding = SystemDateProvider(),
         runtimePlatform: RuntimePlatform = PlatformCapabilities.currentPlatform,
-        autoRefreshInterval: Duration = Defaults.autoRefreshInterval
+        autoRefreshInterval: Duration = Defaults.autoRefreshInterval,
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.coordinator = coordinator
         self.settingsCoordinator = settingsCoordinator
         self.dateProvider = dateProvider
         self.runtimePlatform = runtimePlatform
         self.autoRefreshInterval = autoRefreshInterval
+        self.logger = logger
     }
 
     deinit {
@@ -63,6 +66,12 @@ final class ProxyPageModel: ObservableObject {
     func bootstrapOnAppLaunch(using settings: AppSettings) async {
         guard !didRunLaunchBootstrap else { return }
         didRunLaunchBootstrap = true
+        logger.debug(
+            category: .proxy,
+            event: "bootstrap_started",
+            message: "Running proxy bootstrap on app launch.",
+            metadata: ["auto_start": settings.autoStartApiProxy ? "true" : "false"]
+        )
 
         autoStartProxy = settings.autoStartApiProxy
         await refreshStatusOnly()
@@ -73,8 +82,19 @@ final class ProxyPageModel: ObservableObject {
             let status = try await coordinator.startProxy(preferredPort: nil)
             applyStatus(status)
             lastRefreshedAt = dateProvider.unixSecondsNow()
+            logger.info(
+                category: .proxy,
+                event: "bootstrap_auto_start_succeeded",
+                message: "Auto-started proxy during app bootstrap."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "bootstrap_auto_start_failed",
+                message: "Failed to auto-start proxy during app bootstrap.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -107,8 +127,19 @@ final class ProxyPageModel: ObservableObject {
             liveTestLogs = try coordinator.loadLiveTestLogs()
             await refreshStatusOnly()
             hasLoaded = true
+            logger.debug(
+                category: .proxy,
+                event: "page_load_succeeded",
+                message: "Proxy page loaded."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "page_load_failed",
+                message: "Proxy page failed to load.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -131,8 +162,19 @@ final class ProxyPageModel: ObservableObject {
             applyStatus(status, preferredPort: preferredPort)
             lastRefreshedAt = dateProvider.unixSecondsNow()
             notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.api_proxy_started"))
+            logger.info(
+                category: .proxy,
+                event: "page_start_proxy_succeeded",
+                message: "Started proxy from proxy page."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "page_start_proxy_failed",
+                message: "Failed to start proxy from proxy page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -145,6 +187,11 @@ final class ProxyPageModel: ObservableObject {
         applyStatus(status)
         lastRefreshedAt = dateProvider.unixSecondsNow()
         notice = NoticeMessage(style: .info, text: L10n.tr("proxy.notice.api_proxy_stopped"))
+        logger.info(
+            category: .proxy,
+            event: "page_stop_proxy_succeeded",
+            message: "Stopped proxy from proxy page."
+        )
     }
 
     func refreshAPIKey() async {
@@ -157,8 +204,19 @@ final class ProxyPageModel: ObservableObject {
             applyStatus(status)
             lastRefreshedAt = dateProvider.unixSecondsNow()
             notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.api_key_refreshed"))
+            logger.info(
+                category: .proxy,
+                event: "page_refresh_api_key_succeeded",
+                message: "Refreshed proxy API key from proxy page."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "page_refresh_api_key_failed",
+                message: "Failed to refresh proxy API key from proxy page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -172,8 +230,19 @@ final class ProxyPageModel: ObservableObject {
             applyStatus(status)
             lastRefreshedAt = dateProvider.unixSecondsNow()
             notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.metrics_reset"))
+            logger.info(
+                category: .proxy,
+                event: "page_reset_metrics_succeeded",
+                message: "Reset proxy metrics from proxy page."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "page_reset_metrics_failed",
+                message: "Failed to reset proxy metrics from proxy page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 
@@ -190,6 +259,12 @@ final class ProxyPageModel: ObservableObject {
                 style: .success,
                 text: L10n.tr("proxy.notice.test_request_succeeded_format", result.model, result.outputPreview)
             )
+            logger.info(
+                category: .proxy,
+                event: "page_live_test_succeeded",
+                message: "Proxy live test succeeded from proxy page.",
+                metadata: ["model": result.model]
+            )
         } catch {
             liveTestLogs = (try? coordinator.loadLiveTestLogs()) ?? liveTestLogs
             await refreshStatusOnly()
@@ -197,6 +272,12 @@ final class ProxyPageModel: ObservableObject {
                 style: .error,
                 text: error.localizedDescription,
                 autoDismissDelayOverride: Defaults.liveTestErrorNoticeDelay
+            )
+            logger.error(
+                category: .proxy,
+                event: "page_live_test_failed",
+                message: "Proxy live test failed from proxy page.",
+                metadata: ["error": error.localizedDescription]
             )
         }
     }
@@ -206,8 +287,19 @@ final class ProxyPageModel: ObservableObject {
         do {
             try coordinator.clearLiveTestLogs()
             liveTestLogs = []
+            logger.info(
+                category: .proxy,
+                event: "page_clear_live_test_logs_succeeded",
+                message: "Cleared proxy live test logs from proxy page."
+            )
         } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "page_clear_live_test_logs_failed",
+                message: "Failed to clear proxy live test logs from proxy page.",
+                metadata: ["error": error.localizedDescription]
+            )
         }
     }
 

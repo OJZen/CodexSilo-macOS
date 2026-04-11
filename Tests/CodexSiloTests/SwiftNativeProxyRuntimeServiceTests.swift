@@ -548,6 +548,155 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertEqual(status.activeAccountLabel, "Secondary")
     }
 
+    func testSuccessfulProxyRequestDoesNotEmitVerbosePerRequestLogs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 62001...65000)
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { _ in
+            HTTPResponse.json(statusCode: 200, object: [
+                "id": "resp_log_quiet",
+                "created_at": 123,
+                "model": "gpt-5.4",
+                "status": "completed",
+                "output": [[
+                    "type": "message",
+                    "content": [[
+                        "type": "output_text",
+                        "text": "ok"
+                    ]]
+                ]]
+            ])
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let logger = RecordingAppLogger()
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(store: makeProxyStore()),
+            authRepository: MockAuthRepository(),
+            logger: logger
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(proxyPort)/v1/responses")!)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5.4",
+            "store": false,
+            "input": [[
+                "type": "message",
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": "hello"
+                ]]
+            ]]
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let scopes = logger.recordedScopes()
+        XCTAssertFalse(scopes.contains("proxy.upstream_request_started"))
+        XCTAssertFalse(scopes.contains("proxy.upstream_request_succeeded"))
+        XCTAssertFalse(scopes.contains("proxy.upstream_attempt_completed"))
+    }
+
+    func testSuccessfulStreamingProxyRequestDoesNotEmitVerbosePerRequestLogs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 62001...65000)
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { _ in
+            Self.streamingResponsesSSE(
+                chunks: [
+                    "event: response.created\ndata: {\"id\":\"resp_stream_quiet\"}\n\n",
+                    "event: response.completed\ndata: [DONE]\n\n"
+                ],
+                interChunkDelayMilliseconds: 10
+            )
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let logger = RecordingAppLogger()
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(store: makeProxyStore()),
+            authRepository: MockAuthRepository(),
+            logger: logger
+        )
+
+        let proxyPort = Int.random(in: 47001...52000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        let url = URL(string: "http://127.0.0.1:\(proxyPort)/v1/responses")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5.4",
+            "input": [["role": "user", "content": "hello"]],
+            "stream": true
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (responseBytes, rawResponse) = try await URLSession.shared.bytes(for: request)
+        let response = try XCTUnwrap(rawResponse as? HTTPURLResponse)
+        XCTAssertEqual(response.statusCode, 200)
+
+        var body = Data()
+        for try await byte in responseBytes {
+            body.append(byte)
+        }
+        let text = String(data: body, encoding: .utf8) ?? ""
+        XCTAssertTrue(text.contains("response.completed"))
+
+        let scopes = logger.recordedScopes()
+        XCTAssertFalse(scopes.contains("proxy.upstream_stream_started"))
+        XCTAssertFalse(scopes.contains("proxy.upstream_stream_succeeded"))
+        XCTAssertFalse(scopes.contains("proxy.upstream_stream_attempt_completed"))
+        XCTAssertFalse(scopes.contains("proxy.upstream_stream_attempt_buffered_failure"))
+    }
+
     func testStatusOnlyPublishesLanBaseURLsAfterRestartingIntoLanMode() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2845,6 +2994,52 @@ private final class MockStoreRepository: AccountsStoreRepository, @unchecked Sen
     }
 
     func saveStore(_ store: AccountsStore) throws {
+    }
+}
+
+private final class RecordingAppLogger: AppLogger, @unchecked Sendable {
+    private let queue = DispatchQueue(label: "RecordingAppLogger")
+    private var scopes: [String] = []
+
+    func log(
+        _ level: LogLevel,
+        category: LogCategory,
+        event: String,
+        message: String,
+        metadata: [String : String],
+        operationID: String?
+    ) {
+        _ = level
+        _ = message
+        _ = metadata
+        _ = operationID
+        queue.sync {
+            scopes.append("\(category.rawValue).\(event)")
+        }
+    }
+
+    func recordedScopes() -> [String] {
+        queue.sync { scopes }
+    }
+
+    func loadEntries(limit: Int) async throws -> [AppLogEntry] {
+        _ = limit
+        return []
+    }
+
+    func loadCombinedText(limit: Int) async throws -> String {
+        _ = limit
+        return ""
+    }
+
+    func clearLogs() async throws {
+        queue.sync {
+            scopes.removeAll()
+        }
+    }
+
+    func logsDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
     }
 }
 

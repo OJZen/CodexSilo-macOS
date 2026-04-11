@@ -10,25 +10,39 @@ struct AppContainer {
     static func liveOrCrash() -> AppContainer {
         do {
             let paths = try FileSystemPaths.live()
-            let storeRepository = StoreFileRepository(paths: paths)
-            let authRepository = AuthFileRepository(paths: paths)
+            let logger = FileAppLogger(paths: paths)
+            logger.info(
+                category: .app,
+                event: "bootstrap_started",
+                message: "Bootstrapping application container."
+            )
+            let storeRepository = StoreFileRepository(paths: paths, logger: logger)
+            let authRepository = AuthFileRepository(paths: paths, logger: logger)
             let localAuthFileMonitor = LocalFileMonitorService(monitoredFilePath: paths.codexAuthPath)
             let localConfigFileMonitor = LocalFileMonitorService(monitoredFilePath: paths.codexConfigPath)
             let initialStore = try storeRepository.loadStore()
-            let usageService = DefaultUsageService(configPath: paths.codexConfigPath)
-            let workspaceMetadataService = DefaultWorkspaceMetadataService(configPath: paths.codexConfigPath)
+            let usageService = DefaultUsageService(configPath: paths.codexConfigPath, logger: logger)
+            let workspaceMetadataService = DefaultWorkspaceMetadataService(
+                configPath: paths.codexConfigPath,
+                logger: logger
+            )
             let proxyService = SwiftNativeProxyRuntimeService(
                 paths: paths,
                 storeRepository: storeRepository,
-                authRepository: authRepository
+                authRepository: authRepository,
+                logger: logger
             )
-            let chatGPTOAuthLoginService = OpenAIChatGPTOAuthLoginService(configPath: paths.codexConfigPath)
-            let launchAtStartupService = LaunchAtStartupService()
+            let chatGPTOAuthLoginService = OpenAIChatGPTOAuthLoginService(
+                configPath: paths.codexConfigPath,
+                logger: logger
+            )
+            let launchAtStartupService = LaunchAtStartupService(logger: logger)
 
             let settingsCoordinator = SettingsCoordinator(
                 storeRepository: storeRepository,
                 authRepository: authRepository,
-                launchAtStartupService: launchAtStartupService
+                launchAtStartupService: launchAtStartupService,
+                logger: logger
             )
             let accountsCoordinator = AccountsCoordinator(
                 storeRepository: storeRepository,
@@ -36,6 +50,7 @@ struct AppContainer {
                 usageService: usageService,
                 workspaceMetadataService: workspaceMetadataService,
                 chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                logger: logger
             )
             let initialAccounts = initialStore.accountSummaries(
                 currentAccountKey: authRepository.currentAuthAccountKey(),
@@ -43,7 +58,8 @@ struct AppContainer {
             )
             let proxyCoordinator = ProxyCoordinator(
                 proxyService: proxyService,
-                storeRepository: storeRepository
+                storeRepository: storeRepository,
+                logger: logger
             )
             let trayModel = TrayMenuModel(
                 accountsCoordinator: accountsCoordinator,
@@ -53,6 +69,7 @@ struct AppContainer {
                 cloudSyncService: nil,
                 currentAccountSelectionSyncService: nil,
                 backgroundRefreshPolicy: .forPlatform(PlatformCapabilities.currentPlatform),
+                logger: logger,
                 initialAccounts: initialAccounts
             )
             let accountsModel = AccountsPageModel(
@@ -63,15 +80,18 @@ struct AppContainer {
                 onLocalAccountsChanged: { accounts in
                     trayModel.acceptLocalAccountsSnapshot(accounts)
                 },
+                logger: logger,
                 initialAccounts: initialAccounts,
                 initialOverviewCollapsed: initialStore.accountsOverviewCollapsed
             )
             let proxyModel = ProxyPageModel(
                 coordinator: proxyCoordinator,
-                settingsCoordinator: settingsCoordinator
+                settingsCoordinator: settingsCoordinator,
+                logger: logger
             )
             let settingsModel = SettingsPageModel(
                 settingsCoordinator: settingsCoordinator,
+                appLogger: logger,
                 onSettingsUpdated: { settings in
                     trayModel.applySettings(settings)
                 },
@@ -93,9 +113,25 @@ struct AppContainer {
                 do {
                     try await settingsCoordinator.syncLaunchAtStartupFromStore()
                 } catch {
+                    logger.error(
+                        category: .app,
+                        event: "bootstrap_launch_at_startup_sync_failed",
+                        message: "Launch-at-startup sync failed during bootstrap.",
+                        metadata: ["error": error.localizedDescription]
+                    )
                     // Keep launch non-blocking even if system login item sync fails.
                 }
             }
+
+            logger.info(
+                category: .app,
+                event: "bootstrap_succeeded",
+                message: "Application container bootstrapped successfully.",
+                metadata: [
+                    "accounts": String(initialAccounts.count),
+                    "auto_refresh_accounts": initialStore.settings.autoRefreshAccounts ? "true" : "false"
+                ]
+            )
 
             return AppContainer(
                 accountsModel: accountsModel,

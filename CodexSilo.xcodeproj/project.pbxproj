@@ -52,6 +52,9 @@
 		9F3B31646881F65BD82BC5C9 /* UpdateCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D3340D9F24E63B0B31749E2 /* UpdateCoordinator.swift */; };
 		A39DE0252B7DE1B089DB14D1 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DEC342D5FDC9541EA737668 /* AppContainer.swift */; };
 		A7144A42D2FC21D789B3FB49 /* AppError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8644DF48AF768B1D855A3404 /* AppError.swift */; };
+		AA11AA11AA11AA11AA11AA11 /* AppLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11AA11AA11AA11AA11BB11 /* AppLogging.swift */; };
+		AA11AA11AA11AA11AA11AA12 /* FileAppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11AA11AA11AA11AA11BB12 /* FileAppLogger.swift */; };
+		AA11AA11AA11AA11AA11AA13 /* FileAppLoggerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11AA11AA11AA11AA11BB13 /* FileAppLoggerTests.swift */; };
 		A9BC31EC4BA9427A9F554D41 /* ChatGPTBaseOriginResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1856A9A4C1A74A8AA16A8B11 /* ChatGPTBaseOriginResolver.swift */; };
 		ABCD1234EF567890ABCD1235 /* LocalizedDateFormatterCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD1234EF567890ABCD1234 /* LocalizedDateFormatterCache.swift */; };
 		AEEEE6E52FAC04AFF97354C1 /* ProxyPageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42AE96D25E97F39B6AAB9A8 /* ProxyPageModel.swift */; };
@@ -140,6 +143,9 @@
 		97D79696C6A34BCD8B3C05C1 /* CodexSilo.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = CodexSilo.icon; sourceTree = "<group>"; };
 		9A29E078EE5498D6C73925F4 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		9D3340D9F24E63B0B31749E2 /* UpdateCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateCoordinator.swift; sourceTree = "<group>"; };
+		AA11AA11AA11AA11AA11BB11 /* AppLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogging.swift; sourceTree = "<group>"; };
+		AA11AA11AA11AA11AA11BB12 /* FileAppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAppLogger.swift; sourceTree = "<group>"; };
+		AA11AA11AA11AA11AA11BB13 /* FileAppLoggerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAppLoggerTests.swift; sourceTree = "<group>"; };
 		A101A101A101A101A101A101 /* AccountCardPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCardPresentation.swift; sourceTree = "<group>"; };
 		A102A102A102A102A102A102 /* AccountCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCardView.swift; sourceTree = "<group>"; };
 		A103A103A103A103A103A103 /* AccountsPageControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsPageControls.swift; sourceTree = "<group>"; };
@@ -194,6 +200,7 @@
 				2DD2673A9712C55D302564FA /* DefaultUsageService.swift */,
 				95E85D9244A64A8BB6AB5F11 /* DefaultWorkspaceMetadataService.swift */,
 				26C8D1A13F4D46AAB7E2A110 /* EndpointRequestCoordinator.swift */,
+				AA11AA11AA11AA11AA11BB12 /* FileAppLogger.swift */,
 				1D518BC8C9103B4FD9C16B27 /* FileSystemPaths.swift */,
 				2E875E904D3ADACBDBF66C1D /* GitHubUpdateService.swift */,
 				BCFDDF034C6446339DDFAF9B /* LaunchAtStartupService.swift */,
@@ -285,6 +292,7 @@
 			children = (
 				0A10C10A0A10C10A0A10C100 /* AccountIdentity.swift */,
 				8644DF48AF768B1D855A3404 /* AppError.swift */,
+				AA11AA11AA11AA11AA11BB11 /* AppLogging.swift */,
 				28E2CF5AE0B544874B721FCC /* AppLocale.swift */,
 				5000155760C69A6117DF5E08 /* JSONValue.swift */,
 				315E6E562A9376AB6D34B744 /* L10n.swift */,
@@ -362,6 +370,7 @@
 				A146C7576AB39EFCD658BFED /* AppLocaleTests.swift */,
 				615AE055972ED222439110F8 /* AppSettingsCodableTests.swift */,
 				1659877DCD8B9150D665ED12 /* AuthFileRepositoryTests.swift */,
+				AA11AA11AA11AA11AA11BB13 /* FileAppLoggerTests.swift */,
 				E6318743D5B32C4FA1244FAD /* LiquidProgressMetricsTests.swift */,
 				251BC10FF4D8538941CDC174 /* LocalizationConsistencyTests.swift */,
 				F5B56AEDF3689EA6421720B2 /* ProxyPageModelTests.swift */,
@@ -492,6 +501,7 @@
 				0797784F1F471715624CA9CD /* AppLocaleTests.swift in Sources */,
 				B02FB96AC2AA18DA0EE1FE21 /* AppSettingsCodableTests.swift in Sources */,
 				92F681D52C5A373D81950C05 /* AuthFileRepositoryTests.swift in Sources */,
+				AA11AA11AA11AA11AA11AA13 /* FileAppLoggerTests.swift in Sources */,
 				50922F8C48CF01B728AD262F /* LiquidProgressMetricsTests.swift in Sources */,
 				4353553A171096B9C9653258 /* LocalizationConsistencyTests.swift in Sources */,
 				98E465C8F8BAA05142221C0D /* ProxyPageModelTests.swift in Sources */,
@@ -517,6 +527,7 @@
 				137936A0518C78C5549E919E /* AccountsPageView.swift in Sources */,
 				A39DE0252B7DE1B089DB14D1 /* AppContainer.swift in Sources */,
 				A7144A42D2FC21D789B3FB49 /* AppError.swift in Sources */,
+				AA11AA11AA11AA11AA11AA11 /* AppLogging.swift in Sources */,
 				93F291DBC9FD57E847EB6519 /* AppLocale.swift in Sources */,
 				FA836AB28B6E7F72C253A49F /* AppVersion.swift in Sources */,
 				53243CFFBC40F306DCE9ED45 /* AuthFileRepository.swift in Sources */,
@@ -526,6 +537,7 @@
 				FA8F4B3E19ED4AA8B7740F31 /* DefaultWorkspaceMetadataService.swift in Sources */,
 				FA8F4B3E19ED4AA8B7740F32 /* EndpointRequestCoordinator.swift in Sources */,
 				C0040E924E495A9B4DCF7EBE /* EmptyStateView.swift in Sources */,
+				AA11AA11AA11AA11AA11AA12 /* FileAppLogger.swift in Sources */,
 				D0D721335F066D21AAAD652D /* FileSystemPaths.swift in Sources */,
 				75C5CBC7206160F013685830 /* GitHubUpdateService.swift in Sources */,
 				4340388029808F096EA1D252 /* JSONValue.swift in Sources */,

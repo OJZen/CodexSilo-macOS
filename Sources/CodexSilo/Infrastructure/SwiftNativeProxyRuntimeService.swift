@@ -132,6 +132,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private let authRepository: AuthRepository
     private let dateProvider: DateProviding
     private let lanBaseURLResolver: @Sendable (Int) -> [String]
+    private let logger: AppLogger
 
     private var server: SimpleHTTPServer?
     private var runningPort: Int?
@@ -152,13 +153,15 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         storeRepository: AccountsStoreRepository,
         authRepository: AuthRepository,
         dateProvider: DateProviding = SystemDateProvider(),
-        lanBaseURLResolver: @escaping @Sendable (Int) -> [String] = SwiftNativeProxyRuntimeService.defaultLanBaseURLs(for:)
+        lanBaseURLResolver: @escaping @Sendable (Int) -> [String] = SwiftNativeProxyRuntimeService.defaultLanBaseURLs(for:),
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.paths = paths
         self.storeRepository = storeRepository
         self.authRepository = authRepository
         self.dateProvider = dateProvider
         self.lanBaseURLResolver = lanBaseURLResolver
+        self.logger = logger
     }
 
     func status() async -> ApiProxyStatus {
@@ -200,6 +203,12 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         guard desiredPort > 0 && desiredPort < 65536 else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.invalid_port_format", String(desiredPort)))
         }
+        logger.info(
+            category: .proxy,
+            event: "runtime_start_requested",
+            message: "Starting Swift native proxy runtime.",
+            metadata: ["port": String(desiredPort)]
+        )
 
         _ = try ensurePersistedAPIKey()
         let bindScope: SimpleHTTPServer.BindScope = currentSettings().allowLanProxyAccess
@@ -217,6 +226,15 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             boundServer.start()
         } catch {
             lastError = L10n.tr("error.proxy_runtime.start_swift_proxy_failed_format", error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "runtime_start_failed",
+                message: "Failed to start Swift native proxy runtime.",
+                metadata: [
+                    "port": String(desiredPort),
+                    "error": error.localizedDescription
+                ]
+            )
             throw AppError.io(lastError ?? L10n.tr("error.proxy_runtime.start_failed"))
         }
 
@@ -229,9 +247,24 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         if !healthy {
             _ = await stop()
             lastError = L10n.tr("error.proxy_runtime.health_check_failed")
+            logger.error(
+                category: .proxy,
+                event: "runtime_health_check_failed",
+                message: "Proxy runtime failed health check after startup.",
+                metadata: ["port": String(desiredPort)]
+            )
             throw AppError.io(lastError ?? L10n.tr("error.proxy_runtime.start_failed"))
         }
 
+        logger.info(
+            category: .proxy,
+            event: "runtime_start_succeeded",
+            message: "Swift native proxy runtime started.",
+            metadata: [
+                "port": String(desiredPort),
+                "bind_scope": bindScope == .allInterfaces ? "all_interfaces" : "loopback_only"
+            ]
+        )
         return await status()
     }
 
@@ -242,12 +275,22 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         activeBindScope = nil
         activeAccountID = nil
         activeAccountLabel = nil
+        logger.info(
+            category: .proxy,
+            event: "runtime_stop_succeeded",
+            message: "Swift native proxy runtime stopped."
+        )
         return await status()
     }
 
     func refreshAPIKey() async throws -> ApiProxyStatus {
         let key = randomAPIKey()
         try persistAPIKey(key)
+        logger.info(
+            category: .proxy,
+            event: "runtime_api_key_refreshed",
+            message: "Proxy runtime API key refreshed."
+        )
         return await status()
     }
 
@@ -263,6 +306,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         activeAccountLabel = nil
         lastError = nil
         persistMetricsIfPossible()
+        logger.info(
+            category: .proxy,
+            event: "runtime_metrics_reset",
+            message: "Proxy runtime metrics reset."
+        )
         return await status()
     }
 
@@ -271,6 +319,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return
         }
         loadPersistedMetricsIfNeeded(forceReload: true)
+        logger.debug(
+            category: .proxy,
+            event: "runtime_sync_accounts_store",
+            message: "Reloaded proxy runtime persisted metrics before start."
+        )
     }
 
     private func handle(request: HTTPRequest) async -> HTTPResponse {
@@ -283,6 +336,15 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         }
 
         guard isAuthorized(request.headers) else {
+            logger.warning(
+                category: .proxy,
+                event: "request_unauthorized",
+                message: "Rejected proxy request because API key authorization failed.",
+                metadata: [
+                    "method": request.method,
+                    "route": request.path
+                ]
+            )
             return jsonError(statusCode: 401, message: "Invalid proxy api key.")
         }
 
@@ -322,6 +384,15 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             }
         }
 
+        logger.warning(
+            category: .proxy,
+            event: "unsupported_route",
+            message: "Rejected proxy request because the route is unsupported.",
+            metadata: [
+                "method": request.method,
+                "route": request.path
+            ]
+        )
         return jsonError(
             statusCode: 404,
             message: L10n.tr("error.proxy_runtime.unsupported_route")
@@ -712,11 +783,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         request: HTTPRequest,
         endpointKind: UpstreamEndpointKind = .responses
     ) async throws -> UpstreamResponse {
+        let operationID = UUID().uuidString
         let candidates = try loadCandidates()
         guard !candidates.isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
         }
-
         var failureDetails: [String] = []
         var retryFailures: [RetryFailureInfo] = []
         var lastRetriableResponse: UpstreamResponse?
@@ -726,7 +797,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                     payload: payload,
                     candidate: candidate,
                     request: request,
-                    endpointKind: endpointKind
+                    endpointKind: endpointKind,
+                    operationID: operationID
                 )
                 if response.statusCode >= 200 && response.statusCode < 300 {
                     activeAccountID = candidate.accountID
@@ -742,14 +814,47 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 if let retryFailure = classifyRetryFailure(statusCode: response.statusCode, bodyText: bodyText) {
                     retryFailures.append(retryFailure)
                     lastRetriableResponse = response
+                    logger.warning(
+                        category: .proxy,
+                        event: "upstream_request_retrying",
+                        message: "Upstream proxy request will retry with the next candidate account.",
+                        metadata: [
+                            "route": request.path,
+                            "account_id": candidate.accountID,
+                            "status_code": String(response.statusCode)
+                        ],
+                        operationID: operationID
+                    )
                     continue
                 } else {
                     lastError = detail
+                    logger.error(
+                        category: .proxy,
+                        event: "upstream_request_non_retriable_failure",
+                        message: "Upstream proxy request failed with a non-retriable response.",
+                        metadata: [
+                            "route": request.path,
+                            "account_id": candidate.accountID,
+                            "status_code": String(response.statusCode)
+                        ],
+                        operationID: operationID
+                    )
                     return response
                 }
             } catch {
                 let detail = "\(candidate.label): \(error.localizedDescription)"
                 failureDetails.append(detail)
+                logger.warning(
+                    category: .proxy,
+                    event: "upstream_request_candidate_failed",
+                    message: "Upstream proxy request failed for a candidate account.",
+                    metadata: [
+                        "route": request.path,
+                        "account_id": candidate.accountID,
+                        "error": error.localizedDescription
+                    ],
+                    operationID: operationID
+                )
             }
         }
 
@@ -759,6 +864,13 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 ? L10n.tr("error.proxy_runtime.all_accounts_unavailable")
                 : L10n.tr("error.proxy_runtime.all_accounts_unavailable_with_summary_format", summary)
             lastError = message
+            logger.error(
+                category: .proxy,
+                event: "upstream_request_all_candidates_exhausted",
+                message: "Upstream proxy request exhausted all retryable candidate accounts.",
+                metadata: ["route": request.path],
+                operationID: operationID
+            )
             return lastRetriableResponse
         }
 
@@ -767,6 +879,16 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             ? L10n.tr("error.proxy_runtime.upstream_failed_with_more_format", preview, String(failureDetails.count - 2))
             : L10n.tr("error.proxy_runtime.upstream_failed_format", preview)
         lastError = message
+        logger.error(
+            category: .proxy,
+            event: "upstream_request_failed",
+            message: "Upstream proxy request failed across all candidates.",
+            metadata: [
+                "route": request.path,
+                "failure_preview": preview
+            ],
+            operationID: operationID
+        )
         throw AppError.network(message)
     }
 
@@ -775,11 +897,11 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         request: HTTPRequest,
         endpointKind: UpstreamEndpointKind = .responses
     ) async throws -> HTTPResponse {
+        let operationID = UUID().uuidString
         let candidates = try loadCandidates()
         guard !candidates.isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
         }
-
         var failureDetails: [String] = []
         var retryFailures: [RetryFailureInfo] = []
         var lastRetriableResponse: UpstreamResponse?
@@ -790,7 +912,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                     payload: payload,
                     candidate: candidate,
                     request: request,
-                    endpointKind: endpointKind
+                    endpointKind: endpointKind,
+                    operationID: operationID
                 )
 
                 switch result {
@@ -813,15 +936,48 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                     if let retryFailure = classifyRetryFailure(statusCode: response.statusCode, bodyText: bodyText) {
                         retryFailures.append(retryFailure)
                         lastRetriableResponse = response
+                        logger.warning(
+                            category: .proxy,
+                            event: "upstream_stream_retrying",
+                            message: "Upstream streaming proxy request will retry with the next candidate account.",
+                            metadata: [
+                                "route": request.path,
+                                "account_id": candidate.accountID,
+                                "status_code": String(response.statusCode)
+                            ],
+                            operationID: operationID
+                        )
                         continue
                     } else {
                         lastError = detail
+                        logger.error(
+                            category: .proxy,
+                            event: "upstream_stream_non_retriable_failure",
+                            message: "Upstream streaming proxy request failed with a non-retriable response.",
+                            metadata: [
+                                "route": request.path,
+                                "account_id": candidate.accountID,
+                                "status_code": String(response.statusCode)
+                            ],
+                            operationID: operationID
+                        )
                         return downstreamResponse(from: response)
                     }
                 }
             } catch {
                 let detail = "\(candidate.label): \(error.localizedDescription)"
                 failureDetails.append(detail)
+                logger.warning(
+                    category: .proxy,
+                    event: "upstream_stream_candidate_failed",
+                    message: "Upstream streaming proxy request failed for a candidate account.",
+                    metadata: [
+                        "route": request.path,
+                        "account_id": candidate.accountID,
+                        "error": error.localizedDescription
+                    ],
+                    operationID: operationID
+                )
             }
         }
 
@@ -831,6 +987,13 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
                 ? L10n.tr("error.proxy_runtime.all_accounts_unavailable")
                 : L10n.tr("error.proxy_runtime.all_accounts_unavailable_with_summary_format", summary)
             lastError = message
+            logger.error(
+                category: .proxy,
+                event: "upstream_stream_all_candidates_exhausted",
+                message: "Upstream streaming proxy request exhausted all retryable candidate accounts.",
+                metadata: ["route": request.path],
+                operationID: operationID
+            )
             return downstreamResponse(from: lastRetriableResponse)
         }
 
@@ -839,6 +1002,16 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             ? L10n.tr("error.proxy_runtime.upstream_failed_with_more_format", preview, String(failureDetails.count - 2))
             : L10n.tr("error.proxy_runtime.upstream_failed_format", preview)
         lastError = message
+        logger.error(
+            category: .proxy,
+            event: "upstream_stream_failed",
+            message: "Upstream streaming proxy request failed across all candidates.",
+            metadata: [
+                "route": request.path,
+                "failure_preview": preview
+            ],
+            operationID: operationID
+        )
         throw AppError.network(message)
     }
 
@@ -846,7 +1019,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         payload: [String: Any],
         candidate: ProxyCandidate,
         request: HTTPRequest,
-        endpointKind: UpstreamEndpointKind
+        endpointKind: UpstreamEndpointKind,
+        operationID: String
     ) async throws -> UpstreamResponse {
         guard JSONSerialization.isValidJSONObject(payload) else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.invalid_upstream_payload"))
@@ -861,6 +1035,17 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         let firstBodyText = String(data: firstResponse.body, encoding: .utf8) ?? ""
         if Self.shouldRetryWithAutoReasoningSummary(statusCode: firstResponse.statusCode, bodyText: firstBodyText),
            let adjustedPayload = Self.payloadWithAutoReasoningSummaryIfNeeded(payload: payload) {
+            logger.warning(
+                category: .proxy,
+                event: "upstream_auto_reasoning_retry",
+                message: "Retrying upstream request with normalized reasoning summary.",
+                metadata: [
+                    "route": request.path,
+                    "account_id": candidate.accountID,
+                    "status_code": String(firstResponse.statusCode)
+                ],
+                operationID: operationID
+            )
             return try await performUpstreamRequest(
                 payload: adjustedPayload,
                 candidate: candidate,
@@ -876,7 +1061,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         payload: [String: Any],
         candidate: ProxyCandidate,
         request: HTTPRequest,
-        endpointKind: UpstreamEndpointKind
+        endpointKind: UpstreamEndpointKind,
+        operationID: String
     ) async throws -> UpstreamStreamingResult {
         let firstResponse = try await performUpstreamStreamingRequest(
             payload: payload,
@@ -889,6 +1075,17 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             let firstBodyText = String(data: firstBuffered.body, encoding: .utf8) ?? ""
             if Self.shouldRetryWithAutoReasoningSummary(statusCode: firstBuffered.statusCode, bodyText: firstBodyText),
                let adjustedPayload = Self.payloadWithAutoReasoningSummaryIfNeeded(payload: payload) {
+                logger.warning(
+                    category: .proxy,
+                    event: "upstream_stream_auto_reasoning_retry",
+                    message: "Retrying upstream streaming request with normalized reasoning summary.",
+                    metadata: [
+                        "route": request.path,
+                        "account_id": candidate.accountID,
+                        "status_code": String(firstBuffered.statusCode)
+                    ],
+                    operationID: operationID
+                )
                 return try await performUpstreamStreamingRequest(
                     payload: adjustedPayload,
                     candidate: candidate,

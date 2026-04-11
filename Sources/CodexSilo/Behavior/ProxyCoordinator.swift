@@ -30,38 +30,85 @@ final class ProxyCoordinator: @unchecked Sendable {
     private let storeRepository: AccountsStoreRepository
     private let session: URLSession
     private let dateProvider: DateProviding
+    private let logger: AppLogger
 
     init(
         proxyService: ProxyRuntimeService,
         storeRepository: AccountsStoreRepository,
         session: URLSession = .shared,
-        dateProvider: DateProviding = SystemDateProvider()
+        dateProvider: DateProviding = SystemDateProvider(),
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.proxyService = proxyService
         self.storeRepository = storeRepository
         self.session = session
         self.dateProvider = dateProvider
+        self.logger = logger
     }
 
     func loadStatus() async -> ApiProxyStatus {
-        await proxyService.status()
+        let status = await proxyService.status()
+        logger.debug(
+            category: .proxy,
+            event: "status_loaded",
+            message: "Loaded proxy status.",
+            metadata: [
+                "running": status.running ? "true" : "false",
+                "port": status.port.map(String.init) ?? ""
+            ]
+        )
+        return status
     }
 
     func startProxy(preferredPort: Int?) async throws -> ApiProxyStatus {
+        logger.info(
+            category: .proxy,
+            event: "start_requested",
+            message: "Starting API proxy.",
+            metadata: ["preferred_port": preferredPort.map(String.init) ?? ""]
+        )
         try await proxyService.syncAccountsStore()
-        return try await proxyService.start(preferredPort: preferredPort)
+        let status = try await proxyService.start(preferredPort: preferredPort)
+        logger.info(
+            category: .proxy,
+            event: "start_succeeded",
+            message: "API proxy started.",
+            metadata: [
+                "port": status.port.map(String.init) ?? "",
+                "running": status.running ? "true" : "false"
+            ]
+        )
+        return status
     }
 
     func stopProxy() async -> ApiProxyStatus {
-        await proxyService.stop()
+        let status = await proxyService.stop()
+        logger.info(
+            category: .proxy,
+            event: "stop_succeeded",
+            message: "API proxy stopped."
+        )
+        return status
     }
 
     func refreshAPIKey() async throws -> ApiProxyStatus {
-        try await proxyService.refreshAPIKey()
+        let status = try await proxyService.refreshAPIKey()
+        logger.info(
+            category: .proxy,
+            event: "refresh_api_key_succeeded",
+            message: "Proxy API key refreshed."
+        )
+        return status
     }
 
     func resetMetrics() async throws -> ApiProxyStatus {
-        try await proxyService.resetMetrics()
+        let status = try await proxyService.resetMetrics()
+        logger.info(
+            category: .proxy,
+            event: "reset_metrics_succeeded",
+            message: "Proxy metrics reset."
+        )
+        return status
     }
 
     func loadLiveTestLogs() throws -> [ProxyLiveTestLogEntry] {
@@ -72,12 +119,35 @@ final class ProxyCoordinator: @unchecked Sendable {
         var store = try storeRepository.loadStore()
         store.proxyLiveTestLogs = []
         try storeRepository.saveStore(store)
+        logger.info(
+            category: .proxy,
+            event: "clear_live_test_logs",
+            message: "Cleared proxy live test logs."
+        )
     }
 
     func testLiveRequest(using status: ApiProxyStatus) async throws -> ProxyLiveTestResult {
+        let operationID = UUID().uuidString
+        logger.info(
+            category: .proxy,
+            event: "live_test_started",
+            message: "Starting proxy live test request.",
+            metadata: [
+                "running": status.running ? "true" : "false",
+                "base_url": status.baseURL ?? "",
+                "model": LiveTestDefaults.model
+            ],
+            operationID: operationID
+        )
         guard status.running else {
             let error = AppError.invalidData(L10n.tr("proxy.notice.test_request_requires_running_proxy"))
             appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "live_test_failed_not_running",
+                message: "Proxy live test aborted because the proxy is not running.",
+                operationID: operationID
+            )
             throw error
         }
 
@@ -89,12 +159,25 @@ final class ProxyCoordinator: @unchecked Sendable {
         else {
             let error = AppError.invalidData(L10n.tr("proxy.notice.test_request_missing_credentials"))
             appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "live_test_missing_credentials",
+                message: "Proxy live test aborted because credentials are missing.",
+                operationID: operationID
+            )
             throw error
         }
 
         guard let url = Self.liveTestURL(from: baseURL, endpoint: .responses) else {
             let error = AppError.invalidData(L10n.tr("proxy.notice.test_request_missing_credentials"))
             appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "live_test_invalid_url",
+                message: "Proxy live test failed because the computed URL was invalid.",
+                metadata: ["base_url": baseURL],
+                operationID: operationID
+            )
             throw error
         }
 
@@ -106,10 +189,27 @@ final class ProxyCoordinator: @unchecked Sendable {
             )
             let result = try await performLiveTestRequest(request, fallbackModel: LiveTestDefaults.model)
             appendLiveTestLog(model: result.model, status: .success, message: result.outputPreview)
+            logger.info(
+                category: .proxy,
+                event: "live_test_succeeded",
+                message: "Proxy live test completed successfully.",
+                metadata: [
+                    "model": result.model,
+                    "preview": result.outputPreview
+                ],
+                operationID: operationID
+            )
             return result
         } catch let error as AppError {
             if Self.shouldFallbackToCompact(for: error),
                let compactURL = Self.liveTestURL(from: baseURL, endpoint: .responsesCompact) {
+                logger.warning(
+                    category: .proxy,
+                    event: "live_test_fallback_to_compact",
+                    message: "Proxy live test is retrying via compact responses endpoint.",
+                    metadata: ["error": error.localizedDescription],
+                    operationID: operationID
+                )
                 do {
                     let compactRequest = try Self.liveTestRequest(
                         url: compactURL,
@@ -118,6 +218,16 @@ final class ProxyCoordinator: @unchecked Sendable {
                     )
                     let result = try await performLiveTestRequest(compactRequest, fallbackModel: LiveTestDefaults.model)
                     appendLiveTestLog(model: result.model, status: .success, message: result.outputPreview)
+                    logger.info(
+                        category: .proxy,
+                        event: "live_test_compact_succeeded",
+                        message: "Proxy live test succeeded via compact fallback endpoint.",
+                        metadata: [
+                            "model": result.model,
+                            "preview": result.outputPreview
+                        ],
+                        operationID: operationID
+                    )
                     return result
                 } catch let compactError as AppError {
                     let decorated = Self.decorateLiveTestError(
@@ -129,18 +239,46 @@ final class ProxyCoordinator: @unchecked Sendable {
                         ]
                     )
                     appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: decorated.localizedDescription)
+                    logger.error(
+                        category: .proxy,
+                        event: "live_test_compact_failed",
+                        message: "Proxy live test failed after compact fallback.",
+                        metadata: ["error": decorated.localizedDescription],
+                        operationID: operationID
+                    )
                     throw decorated
                 } catch {
                     appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: error.localizedDescription)
+                    logger.error(
+                        category: .proxy,
+                        event: "live_test_failed",
+                        message: "Proxy live test failed.",
+                        metadata: ["error": error.localizedDescription],
+                        operationID: operationID
+                    )
                     throw error
                 }
             }
 
             let decorated = Self.decorateLiveTestError(error, attemptedModels: [LiveTestDefaults.model])
             appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: decorated.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "live_test_failed",
+                message: "Proxy live test failed.",
+                metadata: ["error": decorated.localizedDescription],
+                operationID: operationID
+            )
             throw decorated
         } catch {
             appendLiveTestLog(model: LiveTestDefaults.model, status: .error, message: error.localizedDescription)
+            logger.error(
+                category: .proxy,
+                event: "live_test_failed",
+                message: "Proxy live test failed.",
+                metadata: ["error": error.localizedDescription],
+                operationID: operationID
+            )
             throw error
         }
     }

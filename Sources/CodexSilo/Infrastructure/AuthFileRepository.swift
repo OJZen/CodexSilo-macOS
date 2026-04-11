@@ -6,14 +6,26 @@ import Darwin
 final class AuthFileRepository: AuthRepository, @unchecked Sendable {
     private let paths: FileSystemPaths
     private let fileManager: FileManager
+    private let logger: AppLogger
 
-    init(paths: FileSystemPaths, fileManager: FileManager = .default) {
+    init(
+        paths: FileSystemPaths,
+        fileManager: FileManager = .default,
+        logger: AppLogger = NoopAppLogger.shared
+    ) {
         self.paths = paths
         self.fileManager = fileManager
+        self.logger = logger
     }
 
     func readCurrentAuth() throws -> JSONValue {
         guard fileManager.fileExists(atPath: paths.codexAuthPath.path) else {
+            logger.warning(
+                category: .auth,
+                event: "read_missing",
+                message: "Current auth file was requested but is missing.",
+                metadata: ["path": paths.codexAuthPath.lastPathComponent]
+            )
             throw AppError.fileNotFound(L10n.tr("error.auth.auth_file_not_found"))
         }
         return try readJSONValue(from: paths.codexAuthPath)
@@ -48,6 +60,17 @@ final class AuthFileRepository: AuthRepository, @unchecked Sendable {
         #if canImport(Darwin)
         _ = chmod(paths.codexAuthPath.path, S_IRUSR | S_IWUSR)
         #endif
+        let extracted = try? extractAuth(from: normalizedAuth)
+        logger.info(
+            category: .auth,
+            event: "write_current_auth",
+            message: "Current auth file updated.",
+            metadata: [
+                "email": extracted?.email ?? "",
+                "account_id": extracted?.accountID ?? "",
+                "path": paths.codexAuthPath.lastPathComponent
+            ]
+        )
     }
 
     func removeCurrentAuth() throws {
@@ -55,6 +78,12 @@ final class AuthFileRepository: AuthRepository, @unchecked Sendable {
             return
         }
         try fileManager.removeItem(at: paths.codexAuthPath)
+        logger.info(
+            category: .auth,
+            event: "remove_current_auth",
+            message: "Current auth file removed.",
+            metadata: ["path": paths.codexAuthPath.lastPathComponent]
+        )
     }
 
     func makeChatGPTAuth(from tokens: ChatGPTOAuthTokens) throws -> JSONValue {
@@ -146,6 +175,15 @@ final class AuthFileRepository: AuthRepository, @unchecked Sendable {
         do {
             data = try Data(contentsOf: path)
         } catch {
+            logger.error(
+                category: .auth,
+                event: "read_failed",
+                message: "Failed to read auth JSON file.",
+                metadata: [
+                    "path": path.lastPathComponent,
+                    "error": error.localizedDescription
+                ]
+            )
             throw AppError.io(L10n.tr("error.auth.read_auth_json_failed_format", error.localizedDescription))
         }
 
@@ -153,9 +191,24 @@ final class AuthFileRepository: AuthRepository, @unchecked Sendable {
         do {
             object = try JSONSerialization.jsonObject(with: data)
         } catch {
+            logger.error(
+                category: .auth,
+                event: "decode_failed",
+                message: "Auth JSON file is not valid JSON.",
+                metadata: ["path": path.lastPathComponent]
+            )
             throw AppError.invalidData(L10n.tr("error.auth.auth_json_invalid"))
         }
 
+        logger.debug(
+            category: .auth,
+            event: "read_succeeded",
+            message: "Auth JSON file loaded.",
+            metadata: [
+                "path": path.lastPathComponent,
+                "bytes": String(data.count)
+            ]
+        )
         return try JSONValue.from(any: object)
     }
 

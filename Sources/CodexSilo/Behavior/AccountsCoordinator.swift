@@ -46,6 +46,7 @@ actor AccountsCoordinator {
     private let workspaceMetadataService: WorkspaceMetadataService?
     private let chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol
     private let dateProvider: DateProviding
+    private let logger: AppLogger
     private var accountsListCache: AccountsListCache?
 
     init(
@@ -54,7 +55,8 @@ actor AccountsCoordinator {
         usageService: UsageService,
         workspaceMetadataService: WorkspaceMetadataService? = nil,
         chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
-        dateProvider: DateProviding = SystemDateProvider()
+        dateProvider: DateProviding = SystemDateProvider(),
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.storeRepository = storeRepository
         self.authRepository = authRepository
@@ -62,6 +64,7 @@ actor AccountsCoordinator {
         self.workspaceMetadataService = workspaceMetadataService
         self.chatGPTOAuthLoginService = chatGPTOAuthLoginService
         self.dateProvider = dateProvider
+        self.logger = logger
     }
 
     func listAccounts() async throws -> [AccountSummary] {
@@ -69,6 +72,12 @@ actor AccountsCoordinator {
         let currentAuthSelection = currentAuthSelectionIdentifiers()
         if let accountsListCache,
            accountsListCache.matches(store: store, currentAuthSelection: currentAuthSelection) {
+            logger.debug(
+                category: .accounts,
+                event: "list_cache_hit",
+                message: "Returning cached account summaries.",
+                metadata: ["accounts": String(accountsListCache.summaries.count)]
+            )
             return accountsListCache.summaries
         }
         let reconciliation = Self.reconcileStoredAccountMetadata(
@@ -88,6 +97,12 @@ actor AccountsCoordinator {
             currentVariantKey: currentAuthSelection.variantKey
         )
         cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        logger.debug(
+            category: .accounts,
+            event: "list_succeeded",
+            message: "Account summaries loaded.",
+            metadata: ["accounts": String(summaries.count)]
+        )
         return summaries
     }
 
@@ -188,7 +203,19 @@ actor AccountsCoordinator {
         setAsCurrent: Bool = false,
         rejectExistingMatchingAccountID: Bool = false
     ) async throws -> AccountSummary {
+        let operationID = UUID().uuidString
         var extracted = try authRepository.extractAuth(from: authJSON)
+        logger.info(
+            category: .accounts,
+            event: "import_started",
+            message: "Starting account import.",
+            metadata: [
+                "email": extracted.email ?? "",
+                "account_id": extracted.accountID,
+                "set_as_current": setAsCurrent ? "true" : "false"
+            ],
+            operationID: operationID
+        )
 
         var usage: UsageSnapshot?
         var usageError: String?
@@ -197,6 +224,16 @@ actor AccountsCoordinator {
             usage = try await usageService.fetchUsage(accessToken: extracted.accessToken, accountID: extracted.accountID)
         } catch {
             usageError = error.localizedDescription
+            logger.warning(
+                category: .accounts,
+                event: "import_usage_failed",
+                message: "Usage fetch during account import failed; continuing with partial data.",
+                metadata: [
+                    "account_id": extracted.accountID,
+                    "error": error.localizedDescription
+                ],
+                operationID: operationID
+            )
         }
         extracted.planType = usage?.planType ?? extracted.planType
         if let remoteWorkspaceName = await resolveRemoteWorkspaceName(
@@ -320,17 +357,36 @@ actor AccountsCoordinator {
         let effectiveCurrentVariantKey = shouldSetAsCurrent
             ? extracted.variantKey
             : currentAuthSelection.variantKey
-        return toSummary(
+        let summary = toSummary(
             savedAccount,
             currentAccountKey: effectiveCurrentAccountKey,
             currentVariantKey: effectiveCurrentVariantKey
         )
+        logger.info(
+            category: .accounts,
+            event: "import_succeeded",
+            message: "Account import completed.",
+            metadata: [
+                "label": summary.label,
+                "email": summary.email ?? "",
+                "account_id": summary.accountID,
+                "is_current": summary.isCurrent ? "true" : "false"
+            ],
+            operationID: operationID
+        )
+        return summary
     }
 
     func deleteAccount(id: String) throws {
         var store = try storeRepository.loadStore()
         store.accounts.removeAll { $0.id == id }
         try storeRepository.saveStore(store)
+        logger.info(
+            category: .accounts,
+            event: "delete_account",
+            message: "Deleted stored account.",
+            metadata: ["stored_account_id": id]
+        )
     }
 
     func updateTeamAlias(id: String, alias: String?) throws -> AccountSummary {
@@ -343,6 +399,15 @@ actor AccountsCoordinator {
         store.accounts[index].updatedAt = dateProvider.unixSecondsNow()
         try storeRepository.saveStore(store)
         let currentAuthSelection = currentAuthSelectionIdentifiers()
+        logger.info(
+            category: .accounts,
+            event: "update_team_alias",
+            message: "Updated account team alias.",
+            metadata: [
+                "stored_account_id": id,
+                "has_alias": normalizeTeamAlias(alias) == nil ? "false" : "true"
+            ]
+        )
 
         return toSummary(
             store.accounts[index],
@@ -367,6 +432,16 @@ actor AccountsCoordinator {
         }
 
         try updateCurrentAccountProjection(account)
+        logger.info(
+            category: .accounts,
+            event: "switch_account",
+            message: "Switched current account.",
+            metadata: [
+                "stored_account_id": id,
+                "email": account.email ?? "",
+                "account_id": account.accountID
+            ]
+        )
     }
 
     func smartSwitch() async throws -> AccountSummary? {
@@ -386,9 +461,28 @@ actor AccountsCoordinator {
     }
 
     func addAccountViaLogin(customLabel: String?, timeoutSeconds: TimeInterval = 10 * 60) async throws -> AccountSummary {
+        let operationID = UUID().uuidString
+        logger.info(
+            category: .accounts,
+            event: "oauth_add_account_started",
+            message: "Starting add-account OAuth flow.",
+            metadata: ["timeout_seconds": String(Int(timeoutSeconds))],
+            operationID: operationID
+        )
         let tokens = try await chatGPTOAuthLoginService.signInWithChatGPT(timeoutSeconds: timeoutSeconds)
         let authJSON = try authRepository.makeChatGPTAuth(from: tokens)
-        return try await importAccount(authJSON: authJSON, customLabel: customLabel)
+        let summary = try await importAccount(authJSON: authJSON, customLabel: customLabel)
+        logger.info(
+            category: .accounts,
+            event: "oauth_add_account_succeeded",
+            message: "OAuth add-account flow completed.",
+            metadata: [
+                "label": summary.label,
+                "email": summary.email ?? ""
+            ],
+            operationID: operationID
+        )
+        return summary
     }
 
     func refreshAllUsage() async throws -> [AccountSummary] {
@@ -448,6 +542,8 @@ actor AccountsCoordinator {
         force: Bool,
         onPartialUpdate: (@Sendable ([AccountSummary]) async -> Void)?
     ) async throws -> AccountsRefreshResult {
+        let operationID = UUID().uuidString
+        let startedAt = Date()
         let now = dateProvider.unixSecondsNow()
         let snapshot = try storeRepository.loadStore()
         let authRepository = self.authRepository
@@ -460,6 +556,17 @@ actor AccountsCoordinator {
         var transientFailureReasons: [String] = []
         var attemptedRefreshCount = 0
         var successfulRefreshCount = 0
+        logger.info(
+            category: .accounts,
+            event: "refresh_usage_started",
+            message: "Starting account usage refresh.",
+            metadata: [
+                "mode": mode == .parallel ? "parallel" : "serial",
+                "force": force ? "true" : "false",
+                "accounts": String(snapshot.accounts.count)
+            ],
+            operationID: operationID
+        )
         switch mode {
         case .parallel:
             try await withThrowingTaskGroup(of: RefreshAccountResult.self, returning: Void.self) { group in
@@ -546,7 +653,7 @@ actor AccountsCoordinator {
             currentVariantKey: currentAuthSelection.variantKey
         )
         cacheAccountsList(store: latest, currentAuthSelection: currentAuthSelection, summaries: summaries)
-        return AccountsRefreshResult(
+        let result = AccountsRefreshResult(
             accounts: summaries,
             failure: Self.refreshFailure(
                 reasons: transientFailureReasons,
@@ -554,6 +661,48 @@ actor AccountsCoordinator {
                 successfulRefreshCount: successfulRefreshCount
             )
         )
+        let duration = String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+        switch result.failure {
+        case .none:
+            logger.info(
+                category: .accounts,
+                event: "refresh_usage_succeeded",
+                message: "Account usage refresh completed.",
+                metadata: [
+                    "attempted": String(attemptedRefreshCount),
+                    "successful": String(successfulRefreshCount),
+                    "duration_ms": duration
+                ],
+                operationID: operationID
+            )
+        case .some(.partial(let reason)):
+            logger.warning(
+                category: .accounts,
+                event: "refresh_usage_partial_failure",
+                message: "Account usage refresh completed with partial transient failures.",
+                metadata: [
+                    "attempted": String(attemptedRefreshCount),
+                    "successful": String(successfulRefreshCount),
+                    "duration_ms": duration,
+                    "reason": reason
+                ],
+                operationID: operationID
+            )
+        case .some(.complete(let reason)):
+            logger.error(
+                category: .accounts,
+                event: "refresh_usage_failed",
+                message: "Account usage refresh failed for all attempted accounts.",
+                metadata: [
+                    "attempted": String(attemptedRefreshCount),
+                    "successful": String(successfulRefreshCount),
+                    "duration_ms": duration,
+                    "reason": reason
+                ],
+                operationID: operationID
+            )
+        }
+        return result
     }
 
     private static func mergeRefreshedAccount(
@@ -571,6 +720,14 @@ actor AccountsCoordinator {
     }
 
     func refreshWorkspaceMetadata(forceRemoteCheck: Bool) async throws -> [AccountSummary] {
+        let operationID = UUID().uuidString
+        logger.debug(
+            category: .accounts,
+            event: "refresh_workspace_metadata_started",
+            message: "Starting workspace metadata refresh.",
+            metadata: ["force_remote_check": forceRemoteCheck ? "true" : "false"],
+            operationID: operationID
+        )
         var store = try storeRepository.loadStore()
         let didChange = await enrichStoredWorkspaceMetadataIfNeeded(
             in: &store,
@@ -585,6 +742,16 @@ actor AccountsCoordinator {
             currentVariantKey: currentAuthSelection.variantKey
         )
         cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        logger.info(
+            category: .accounts,
+            event: "refresh_workspace_metadata_completed",
+            message: "Workspace metadata refresh completed.",
+            metadata: [
+                "accounts": String(summaries.count),
+                "did_change": didChange ? "true" : "false"
+            ],
+            operationID: operationID
+        )
         return summaries
     }
 

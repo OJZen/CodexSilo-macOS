@@ -16,23 +16,41 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
 
     private let configPath: URL
     private let session: URLSession
+    private let logger: AppLogger
 
-    init(configPath: URL, session: URLSession = .shared) {
+    init(
+        configPath: URL,
+        session: URLSession = .shared,
+        logger: AppLogger = NoopAppLogger.shared
+    ) {
         self.configPath = configPath
         self.session = session
+        self.logger = logger
     }
 
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens {
+        let operationID = UUID().uuidString
         let callback = OAuthCallbackBox<ChatGPTOAuthTokens>()
         let pkce = PKCECodes.make()
         let state = Self.randomBase64URL(byteCount: 32)
         let forcedWorkspaceID = resolveForcedWorkspaceID()
+        logger.info(
+            category: .auth,
+            event: "oauth_sign_in_started",
+            message: "Starting ChatGPT OAuth sign-in flow.",
+            metadata: [
+                "timeout_seconds": String(Int(timeoutSeconds)),
+                "forced_workspace_id": forcedWorkspaceID ?? ""
+            ],
+            operationID: operationID
+        )
 
         let (server, port) = try makeCallbackServer(
             callback: callback,
             pkce: pkce,
             state: state,
-            forcedWorkspaceID: forcedWorkspaceID
+            forcedWorkspaceID: forcedWorkspaceID,
+            operationID: operationID
         )
         let redirectURI = Self.redirectURI(for: port)
         let authorizeURL = try makeAuthorizeURL(
@@ -46,20 +64,39 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         defer { server.stop() }
 
         return try await withTaskCancellationHandler(operation: {
-            try await beginAuthorizationSession(url: authorizeURL, callback: callback)
+            try await beginAuthorizationSession(url: authorizeURL, callback: callback, operationID: operationID)
 
             do {
                 let tokens = try await callback.wait(timeoutSeconds: timeoutSeconds) {
                     AppError.io(L10n.tr("error.accounts.add_account_timeout"))
                 }
                 await endAuthorizationSession()
+                logger.info(
+                    category: .auth,
+                    event: "oauth_sign_in_succeeded",
+                    message: "ChatGPT OAuth sign-in completed.",
+                    operationID: operationID
+                )
                 return tokens
             } catch {
                 await endAuthorizationSession()
+                logger.error(
+                    category: .auth,
+                    event: "oauth_sign_in_failed",
+                    message: "ChatGPT OAuth sign-in failed.",
+                    metadata: ["error": error.localizedDescription],
+                    operationID: operationID
+                )
                 throw error
             }
         }, onCancel: {
             callback.fail(AppError.io(L10n.tr("error.oauth.request_cancelled")))
+            self.logger.warning(
+                category: .auth,
+                event: "oauth_sign_in_cancelled",
+                message: "ChatGPT OAuth sign-in was cancelled.",
+                operationID: operationID
+            )
             Task {
                 await self.endAuthorizationSession()
             }
@@ -68,11 +105,27 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
 
     private func beginAuthorizationSession(
         url: URL,
-        callback: OAuthCallbackBox<ChatGPTOAuthTokens>
+        callback: OAuthCallbackBox<ChatGPTOAuthTokens>,
+        operationID: String
     ) async throws {
+        let urlSummary = Self.authorizationURLSummary(url)
         guard NSWorkspace.shared.open(url) else {
+            logger.error(
+                category: .auth,
+                event: "oauth_browser_open_failed",
+                message: "Failed to open browser for OAuth authorization.",
+                metadata: ["url": urlSummary],
+                operationID: operationID
+            )
             throw AppError.io(L10n.tr("error.oauth.browser_open_failed"))
         }
+        logger.info(
+            category: .auth,
+            event: "oauth_browser_opened",
+            message: "Opened browser for OAuth authorization.",
+            metadata: ["url": urlSummary],
+            operationID: operationID
+        )
         _ = callback
     }
 
@@ -84,7 +137,8 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         callback: OAuthCallbackBox<ChatGPTOAuthTokens>,
         pkce: PKCECodes,
         state: String,
-        forcedWorkspaceID: String?
+        forcedWorkspaceID: String?,
+        operationID: String
     ) throws -> (SimpleHTTPServer, UInt16) {
         var candidatePort = Configuration.preferredCallbackPort
         let maxPort = Configuration.preferredCallbackPort + Configuration.maxPortScanOffset
@@ -101,12 +155,31 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
                         pkce: pkce,
                         state: state,
                         forcedWorkspaceID: forcedWorkspaceID,
-                        callback: callback
+                        callback: callback,
+                        logger: self.logger,
+                        operationID: operationID
                     )
                 }
+                logger.info(
+                    category: .auth,
+                    event: "oauth_callback_server_ready",
+                    message: "OAuth callback server started.",
+                    metadata: ["port": String(candidatePort)],
+                    operationID: operationID
+                )
                 return (server, candidatePort)
             } catch {
                 lastError = error
+                logger.warning(
+                    category: .auth,
+                    event: "oauth_callback_port_unavailable",
+                    message: "OAuth callback port was unavailable; trying next port.",
+                    metadata: [
+                        "port": String(candidatePort),
+                        "error": error.localizedDescription
+                    ],
+                    operationID: operationID
+                )
                 candidatePort += 1
             }
         }
@@ -121,7 +194,9 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         pkce: PKCECodes,
         state: String,
         forcedWorkspaceID: String?,
-        callback: OAuthCallbackBox<ChatGPTOAuthTokens>
+        callback: OAuthCallbackBox<ChatGPTOAuthTokens>,
+        logger: AppLogger,
+        operationID: String
     ) async -> HTTPResponse {
         guard request.method == "GET" else {
             return .text(statusCode: 405, text: "Method Not Allowed")
@@ -136,6 +211,12 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
 
             guard params["state"] == state else {
                 let error = AppError.unauthorized(L10n.tr("error.oauth.callback_state_mismatch"))
+                logger.error(
+                    category: .auth,
+                    event: "oauth_state_mismatch",
+                    message: "OAuth callback state mismatch.",
+                    operationID: operationID
+                )
                 callback.fail(error)
                 return .html(statusCode: 400, body: errorPageHTML(message: error.localizedDescription))
             }
@@ -147,7 +228,9 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
                         redirectURI: redirectURI,
                         pkce: pkce,
                         code: code,
-                        forcedWorkspaceID: forcedWorkspaceID
+                        forcedWorkspaceID: forcedWorkspaceID,
+                        logger: logger,
+                        operationID: operationID
                     )
                     callback.succeed(tokens)
                     return .html(statusCode: 200, body: successPageHTML())
@@ -163,6 +246,13 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
                     ? L10n.tr("error.oauth.callback_failed_format", description!)
                     : L10n.tr("error.oauth.callback_failed_format", errorCode)
                 let authError = AppError.unauthorized(message)
+                logger.error(
+                    category: .auth,
+                    event: "oauth_callback_failed",
+                    message: "OAuth callback returned an authorization error.",
+                    metadata: ["error_code": errorCode],
+                    operationID: operationID
+                )
                 callback.fail(authError)
                 return .html(statusCode: 401, body: errorPageHTML(message: message))
             }
@@ -172,6 +262,12 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
             return .html(statusCode: 400, body: errorPageHTML(message: error.localizedDescription))
         case "/cancel":
             let error = AppError.io(L10n.tr("error.oauth.request_cancelled"))
+            logger.warning(
+                category: .auth,
+                event: "oauth_callback_cancelled",
+                message: "OAuth callback cancellation endpoint was hit.",
+                operationID: operationID
+            )
             callback.fail(error)
             return .html(statusCode: 200, body: errorPageHTML(message: error.localizedDescription))
         default:
@@ -184,8 +280,11 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         redirectURI: String,
         pkce: PKCECodes,
         code: String,
-        forcedWorkspaceID: String?
+        forcedWorkspaceID: String?,
+        logger: AppLogger,
+        operationID: String
     ) async throws -> ChatGPTOAuthTokens {
+        let startedAt = Date()
         var request = URLRequest(url: endpointURL("/oauth/token"))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -200,6 +299,12 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error(
+                category: .auth,
+                event: "oauth_token_exchange_invalid_response",
+                message: "OAuth token exchange returned a non-HTTP response.",
+                operationID: operationID
+            )
             throw AppError.network(L10n.tr("error.oauth.token_exchange_failed_format", L10n.tr("error.usage.invalid_response")))
         }
 
@@ -207,6 +312,16 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
             let body = String(data: data, encoding: .utf8) ?? ""
             let detail = body.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = detail.isEmpty ? "HTTP \(httpResponse.statusCode)" : String(detail.prefix(200))
+            logger.error(
+                category: .auth,
+                event: "oauth_token_exchange_failed",
+                message: "OAuth token exchange failed.",
+                metadata: [
+                    "status_code": String(httpResponse.statusCode),
+                    "detail": message
+                ],
+                operationID: operationID
+            )
             throw AppError.network(L10n.tr("error.oauth.token_exchange_failed_format", message))
         }
 
@@ -217,6 +332,14 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
                 throw AppError.unauthorized(L10n.tr("error.oauth.workspace_mismatch_format", forcedWorkspaceID))
             }
         }
+
+        logger.info(
+            category: .auth,
+            event: "oauth_token_exchange_succeeded",
+            message: "OAuth token exchange succeeded.",
+            metadata: ["duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))],
+            operationID: operationID
+        )
 
         let apiKey = try? await exchangeIDTokenForAPIKey(session: session, idToken: tokenResponse.idToken)
         return ChatGPTOAuthTokens(
@@ -297,6 +420,18 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         }
 
         return nil
+    }
+
+    private static func authorizationURLSummary(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.deletingQueryAndFragment().absoluteString
+        }
+
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? url.deletingQueryAndFragment().absoluteString
     }
 
     private static func extractAccountID(fromIDToken idToken: String) throws -> String {
@@ -386,6 +521,17 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
             escaped = escaped.replacingOccurrences(of: source, with: target)
         }
         return escaped
+    }
+}
+
+private extension URL {
+    func deletingQueryAndFragment() -> URL {
+        guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else {
+            return self
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? self
     }
 }
 

@@ -10,16 +10,19 @@ final class DefaultUsageService: UsageService, @unchecked Sendable {
     private let configPath: URL
     private let dateProvider: DateProviding
     private let endpointCoordinator: EndpointRequestCoordinator
+    private let logger: AppLogger
 
     init(
         session: URLSession = .shared,
         configPath: URL,
         dateProvider: DateProviding = SystemDateProvider(),
-        endpointPreferenceStore: EndpointPreferenceStore = .shared
+        endpointPreferenceStore: EndpointPreferenceStore = .shared,
+        logger: AppLogger = NoopAppLogger.shared
     ) {
         self.session = session
         self.configPath = configPath
         self.dateProvider = dateProvider
+        self.logger = logger
         self.endpointCoordinator = EndpointRequestCoordinator(
             session: session,
             preferenceStore: endpointPreferenceStore
@@ -27,6 +30,18 @@ final class DefaultUsageService: UsageService, @unchecked Sendable {
     }
 
     func fetchUsage(accessToken: String, accountID: String) async throws -> UsageSnapshot {
+        let operationID = UUID().uuidString
+        let startedAt = Date()
+        logger.debug(
+            category: .usage,
+            event: "fetch_started",
+            message: "Starting usage fetch.",
+            metadata: [
+                "account_id": accountID,
+                "candidate_count": String(resolveUsageURLs().count)
+            ],
+            operationID: operationID
+        )
         do {
             let result = try await endpointCoordinator.fetchFirstSuccessful(
                 scope: RequestPolicy.scope,
@@ -42,9 +57,33 @@ final class DefaultUsageService: UsageService, @unchecked Sendable {
                 return request
             }
             let payload = try JSONDecoder().decode(UsageAPIResponse.self, from: result.data)
-            return mapPayload(payload)
+            let snapshot = mapPayload(payload)
+            logger.info(
+                category: .usage,
+                event: "fetch_succeeded",
+                message: "Usage fetch completed.",
+                metadata: [
+                    "account_id": accountID,
+                    "endpoint": result.endpoint,
+                    "plan_type": payload.planType ?? "",
+                    "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
+                ],
+                operationID: operationID
+            )
+            return snapshot
         } catch EndpointRequestError.allRequestsFailed(let errors) {
             let preview = errors.prefix(2).joined(separator: " | ")
+            logger.error(
+                category: .usage,
+                event: "fetch_failed",
+                message: "Usage fetch failed across all endpoints.",
+                metadata: [
+                    "account_id": accountID,
+                    "duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                    "failure_preview": preview
+                ],
+                operationID: operationID
+            )
             if errors.count > 2 {
                 throw AppError.network(L10n.tr("error.usage.request_failed_with_more_format", preview, String(errors.count - 2)))
             }
