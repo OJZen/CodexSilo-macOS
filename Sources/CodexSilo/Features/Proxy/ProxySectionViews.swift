@@ -4,16 +4,14 @@ struct ApiProxySectionView: View {
     @ObservedObject var model: ProxyPageModel
 
     var body: some View {
-        SectionCard(title: L10n.tr("proxy.section.api_proxy")) {
-            VStack(alignment: .leading, spacing: LayoutRules.proxyDetailCardSpacing) {
-                proxyHeroContent
-                proxyDetailGroup
-            }
+        VStack(alignment: .leading, spacing: LayoutRules.proxyDetailCardSpacing) {
+            proxyHeroContent
+            proxyDetailGroup
         }
     }
 
     private var proxyHeroContent: some View {
-        proxyPanel {
+        proxyPanel(tint: heroPanelTint) {
             VStack(alignment: .leading, spacing: LayoutRules.proxySectionSpacing) {
                 proxyMetricStrip
                 Divider()
@@ -48,7 +46,7 @@ struct ApiProxySectionView: View {
     }
 
     private var proxyDetailGroup: some View {
-        proxyPanel {
+        proxyPanel(tint: detailPanelTint) {
             VStack(alignment: .leading, spacing: 12) {
                 ProxyValueRow(
                     title: model.proxyStatus.lanBaseURLs.isEmpty
@@ -200,6 +198,14 @@ struct ApiProxySectionView: View {
             .frostedRoundedSurface(cornerRadius: 999)
     }
 
+    private var heroPanelTint: Color {
+        model.proxyStatus.running ? .teal : .orange
+    }
+
+    private var detailPanelTint: Color {
+        model.proxyStatus.lastError == nil ? .blue : .orange
+    }
+
     private var preferredPortEditor: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L10n.tr("proxy.port_line_format", "").trimmingCharacters(in: .whitespacesAndNewlines))
@@ -257,6 +263,7 @@ struct ApiProxySectionView: View {
     }
 
     private func proxyPanel<Content: View>(
+        tint: Color? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -264,7 +271,7 @@ struct ApiProxySectionView: View {
         }
         .padding(LayoutRules.proxyPanelPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedRoundedSurface(cornerRadius: 12)
+        .frostedRoundedSurface(cornerRadius: 12, tint: tint)
     }
 }
 
