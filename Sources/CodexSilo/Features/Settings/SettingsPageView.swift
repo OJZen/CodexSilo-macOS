@@ -7,6 +7,7 @@ struct SettingsPageView: View {
 
     @ObservedObject var model: SettingsPageModel
     @State private var transferDialogMode: SettingsTransferDialogMode?
+    @State private var isShowingLogsPage = false
     @State private var isShowingQuitConfirmation = false
 
     var body: some View {
@@ -32,7 +33,6 @@ struct SettingsPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await model.loadIfNeeded()
-            await model.refreshLiveTestLogs()
         }
         .sheet(item: $transferDialogMode) { mode in
             SettingsDataTransferDialog(mode: mode, model: model)
@@ -40,6 +40,10 @@ struct SettingsPageView: View {
                     minWidth: 640,
                     minHeight: mode == .exportArchive ? 460 : 420
                 )
+        }
+        .sheet(isPresented: $isShowingLogsPage) {
+            SettingsLogsPage(model: model)
+                .frame(minWidth: 760, minHeight: 520)
         }
     }
 
@@ -188,39 +192,33 @@ struct SettingsPageView: View {
 
     private var logsSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(L10n.tr("common.logs"))
-                        .font(.headline)
-                    Spacer(minLength: 0)
-                    if !model.liveTestLogs.isEmpty {
-                        Button(L10n.tr("common.remove")) {
-                            Task { await model.clearProxyLiveTestLogs() }
-                        }
-                        .codexsiloActionButtonStyle()
-                        .disabled(model.logsBusy)
-                    }
-                }
+            Button {
+                isShowingLogsPage = true
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    Label(L10n.tr("common.logs"), systemImage: "doc.text")
+                        .foregroundStyle(.primary)
 
-                if model.liveTestLogs.isEmpty {
-                    Text(L10n.tr("common.none"))
-                        .font(.subheadline)
+                    Spacer(minLength: 0)
+
+                    Text(logsSummaryText)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(model.liveTestLogs) { entry in
-                            SettingsLiveTestLogRow(entry: entry)
-                            if entry.id != model.liveTestLogs.last?.id {
-                                Divider()
-                            }
-                        }
-                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 4)
-        } header: {
-            Label(L10n.tr("common.logs"), systemImage: "doc.text")
+            .buttonStyle(.plain)
+            .padding(.vertical, 2)
         }
+    }
+
+    private var logsSummaryText: String {
+        model.appLogs.isEmpty ? L10n.tr("common.none") : "\(model.appLogs.count)"
     }
 
     private var versionFooter: some View {
@@ -282,8 +280,121 @@ struct SettingsPageView: View {
     }
 }
 
-private struct SettingsLiveTestLogRow: View {
-    let entry: ProxyLiveTestLogEntry
+private struct SettingsLogsPage: View {
+    @ObservedObject var model: SettingsPageModel
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isRefreshing = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Divider()
+
+            if model.appLogs.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(L10n.tr("common.none"))
+                        .font(.headline)
+
+                    Text(L10n.tr("settings.logs.empty_description"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(24)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(model.appLogs) { entry in
+                            SettingsAppLogRow(entry: entry)
+                            if entry.id != model.appLogs.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .task {
+            await refreshLogs()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Label(L10n.tr("common.logs"), systemImage: "doc.text")
+                .font(.title2.weight(.semibold))
+
+            Spacer(minLength: 0)
+
+            Button {
+                Task { await refreshLogs() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Text(L10n.tr("common.refresh"))
+                }
+                .lineLimit(1)
+            }
+            .codexsiloActionButtonStyle()
+            .disabled(isRefreshing || model.logsBusy)
+
+            Button(L10n.tr("common.open_folder")) {
+                model.openLogsDirectory()
+            }
+            .codexsiloActionButtonStyle()
+
+            Button(L10n.tr("common.copy_all")) {
+                Task { await model.copyAllAppLogs() }
+            }
+            .codexsiloActionButtonStyle()
+            .disabled(model.appLogs.isEmpty || model.logsBusy)
+
+            if !model.appLogs.isEmpty {
+                Button(L10n.tr("common.clear_logs")) {
+                    Task { await model.clearAppLogs() }
+                }
+                .codexsiloActionButtonStyle()
+                .disabled(model.logsBusy)
+            }
+
+            Button(L10n.tr("common.close")) {
+                dismiss()
+            }
+            .codexsiloActionButtonStyle()
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func refreshLogs() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await model.refreshAppLogs()
+    }
+}
+
+private struct SettingsAppLogRow: View {
+    let entry: AppLogEntry
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -292,8 +403,8 @@ private struct SettingsLiveTestLogRow: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
 
-                Text(entry.model)
-                    .font(.subheadline.weight(.semibold))
+                Text(entry.scope)
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
 
                 Spacer(minLength: 0)
 
@@ -302,34 +413,53 @@ private struct SettingsLiveTestLogRow: View {
                     .foregroundStyle(.secondary)
 
                 Button {
-                    PlatformClipboard.copy(entry.message)
+                    PlatformClipboard.copy(entry.rawLine)
                 } label: {
                     Label("common.copy", systemImage: "doc.on.doc")
                 }
                 .codexsiloActionButtonStyle()
             }
 
-            Text(entry.message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(entry.level.label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(statusColor.opacity(0.12), in: Capsule())
+
+                Text(entry.message)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let metadataSummary = entry.metadataSummary,
+               !metadataSummary.isEmpty {
+                Text(metadataSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
     private var timestampText: String {
-        let date = Date(timeIntervalSince1970: TimeInterval(entry.createdAt))
         return LocalizedDateFormatterCache.shared.string(
-            from: date,
+            from: entry.timestamp,
             locale: .autoupdatingCurrent,
-            dateStyle: Calendar.autoupdatingCurrent.isDateInToday(date) ? .none : .short,
+            dateStyle: Calendar.autoupdatingCurrent.isDateInToday(entry.timestamp) ? .none : .short,
             timeStyle: .medium
         )
     }
 
     private var statusColor: Color {
-        switch entry.status {
-        case .success:
+        switch entry.level {
+        case .debug:
+            return .secondary
+        case .info:
             return .mint
         case .warning:
             return .orange

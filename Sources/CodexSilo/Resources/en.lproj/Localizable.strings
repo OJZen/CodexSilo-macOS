@@ -17,6 +17,9 @@
 "common.install" = "Install";
 "common.none" = "None";
 "common.quit" = "Quit";
+"common.open_folder" = "Open Folder";
+"common.copy_all" = "Copy All";
+"common.clear_logs" = "Clear Logs";
 
 "settings.section.general" = "General";
 "settings.launch_at_startup" = "Launch at startup";
@@ -61,6 +64,7 @@
 "settings.notice.proxy_lan_access_updated" = "LAN proxy access updated. Restart the API proxy if it is already running.";
 "settings.notice.restart_target_updated" = "Editor restart target updated";
 "settings.notice.remote_servers_saved" = "Remote server config saved";
+"settings.logs.empty_description" = "No file logs yet. Trigger a few app actions and refresh this page.";
 "settings.error.remote_servers_json_utf8" = "Remote servers JSON is not valid UTF-8";
 "settings.error.remote_servers_json_decode_format" = "Remote servers JSON parse failed: %@";
 
@@ -331,6 +335,7 @@
 "error.transfer.import_file_required" = "Please choose an archive file to import";
 "error.transfer.read_failed_format" = "Failed to read encrypted archive: %@";
 "error.transfer.write_failed_format" = "Failed to write encrypted archive: %@";
+"error.logs.open_folder_failed" = "Failed to open the logs folder.";
 "error.transfer.invalid_archive" = "The archive file is invalid or corrupted";
 "error.transfer.unsupported_version_format" = "Unsupported archive version: %@";
 "error.transfer.unsupported_kdf_format" = "Unsupported key derivation algorithm: %@";

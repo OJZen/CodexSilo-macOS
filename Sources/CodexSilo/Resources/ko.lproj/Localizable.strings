@@ -17,6 +17,9 @@
 "common.install" = "설치";
 "common.none" = "없음";
 "common.quit" = "종료";
+"common.open_folder" = "폴더 열기";
+"common.copy_all" = "모두 복사";
+"common.clear_logs" = "로그 지우기";
 
 "settings.section.general" = "일반";
 "settings.launch_at_startup" = "로그인 시 실행";
@@ -61,6 +64,7 @@
 "settings.notice.proxy_lan_access_updated" = "LAN 프록시 접근 설정이 업데이트되었습니다. 이미 실행 중이면 API 프록시를 다시 시작하세요.";
 "settings.notice.restart_target_updated" = "재시작 대상이 업데이트되었습니다";
 "settings.notice.remote_servers_saved" = "원격 서버 설정이 저장되었습니다";
+"settings.logs.empty_description" = "아직 파일 로그가 없습니다. 몇 가지 작업을 한 뒤 이 화면을 새로고침하세요.";
 "settings.error.remote_servers_json_utf8" = "원격 서버 JSON이 유효한 UTF-8이 아닙니다";
 "settings.error.remote_servers_json_decode_format" = "원격 서버 JSON 파싱 실패: %@";
 
@@ -321,6 +325,7 @@
 "error.transfer.import_file_required" = "가져올 아카이브 파일을 선택하세요";
 "error.transfer.read_failed_format" = "암호화된 아카이브를 읽지 못했습니다: %@";
 "error.transfer.write_failed_format" = "암호화된 아카이브를 쓰지 못했습니다: %@";
+"error.logs.open_folder_failed" = "로그 폴더를 열지 못했습니다.";
 "error.transfer.invalid_archive" = "아카이브 파일이 유효하지 않거나 손상되었습니다";
 "error.transfer.unsupported_version_format" = "지원하지 않는 아카이브 버전입니다: %@";
 "error.transfer.unsupported_kdf_format" = "지원하지 않는 키 파생 알고리즘입니다: %@";

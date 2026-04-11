@@ -17,6 +17,9 @@
 "common.install" = "安装";
 "common.none" = "无";
 "common.quit" = "退出";
+"common.open_folder" = "打开文件夹";
+"common.copy_all" = "全部复制";
+"common.clear_logs" = "清空日志";
 
 "settings.section.general" = "通用";
 "settings.launch_at_startup" = "开机启动";
@@ -61,6 +64,7 @@
 "settings.notice.proxy_lan_access_updated" = "局域网代理访问设置已更新。如果代理已经在运行，请重启后生效。";
 "settings.notice.restart_target_updated" = "重启目标已更新";
 "settings.notice.remote_servers_saved" = "远程服务器配置已保存";
+"settings.logs.empty_description" = "还没有文件日志。先执行一些操作，再回来刷新这里。";
 "settings.error.remote_servers_json_utf8" = "远程服务器 JSON 不是合法 UTF-8";
 "settings.error.remote_servers_json_decode_format" = "远程服务器 JSON 解析失败：%@";
 
@@ -331,6 +335,7 @@
 "error.transfer.import_file_required" = "请选择要导入的归档文件";
 "error.transfer.read_failed_format" = "读取加密归档失败：%@";
 "error.transfer.write_failed_format" = "写入加密归档失败：%@";
+"error.logs.open_folder_failed" = "打开日志文件夹失败。";
 "error.transfer.invalid_archive" = "归档文件无效或已损坏";
 "error.transfer.unsupported_version_format" = "不支持的归档版本：%@";
 "error.transfer.unsupported_kdf_format" = "不支持的密钥派生算法：%@";
