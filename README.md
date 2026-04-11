@@ -27,6 +27,7 @@
 - 支持复制 `Base URL` 与 `API Key`
 - 支持菜单栏常驻、开机启动、自动刷新、自动启动代理
 - 支持密码保护的账号数据导入 / 导出，导出格式为 `*.codexsiloexport`
+- 支持本地文件日志与设置页独立日志查看
 
 ## 系统要求
 
@@ -64,6 +65,7 @@ Sources/CodexSilo
 主要读写以下路径：
 
 - `~/Library/Application Support/CodexToolsSwift/accounts.json`
+- `~/Library/Application Support/CodexToolsSwift/Logs/app.log`
 - `~/.codex/auth.json`
 - `~/.codex/config.toml`
 - `~/.codex-tools-proxyd/api-proxy.key`
@@ -72,6 +74,7 @@ Sources/CodexSilo
 
 - 当前选中账号会同步回 `~/.codex/auth.json`
 - 导出数据使用口令派生密钥和 `AES-256-GCM` 加密
+- 运行日志会落到 `Logs/` 目录，默认按文件轮转并保留最近 7 天
 - 本地存储可能包含敏感 token，请不要上传到公开仓库
 
 ## 发布

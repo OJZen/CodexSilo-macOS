@@ -142,6 +142,7 @@ CodexSilo 是一个 macOS 原生 SwiftUI 工具，目标是把 Codex / ChatGPT �
 - 导入本地 store
 - 导入导出格式为 `*.codexsiloexport`
 - 导出使用口令加密
+- 设置页提供独立文件日志页面
 - 设置页展示项目仓库链接
 - 设置页展示当前应用版本号
 
@@ -155,6 +156,20 @@ CodexSilo 是一个 macOS 原生 SwiftUI 工具，目标是把 Codex / ChatGPT �
 
 - [/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Features/Settings/SettingsPageView.swift](/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Features/Settings/SettingsPageView.swift)
 - [/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Behavior/SettingsCoordinator.swift](/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Behavior/SettingsCoordinator.swift)
+
+### 7. 本地文件日志
+
+- 应用会把运行日志写入 `~/Library/Application Support/CodexToolsSwift/Logs/`
+- 当前活跃日志文件是 `app.log`
+- 日志采用纯文本单行格式，包含时间、级别、分类、事件和脱敏后的上下文摘要
+- 默认按大小或日期轮转，并保留最近 7 天的日志文件
+- 设置页里的 Logs 入口读取的是这套文件日志，不是代理 live test 历史
+
+相关入口：
+
+- [/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Domain/AppLogging.swift](/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Domain/AppLogging.swift)
+- [/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Infrastructure/FileAppLogger.swift](/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Infrastructure/FileAppLogger.swift)
+- [/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Features/Settings/SettingsPageModel.swift](/Volumes/Ju/Projects/github/CodexSilo/Sources/CodexSilo/Features/Settings/SettingsPageModel.swift)
 
 ## 运行时结构
 
@@ -197,6 +212,7 @@ CodexSilo 是一个 macOS 原生 SwiftUI 工具，目标是把 Codex / ChatGPT �
 应用会直接读写这些文件：
 
 - `~/Library/Application Support/CodexToolsSwift/accounts.json`
+- `~/Library/Application Support/CodexToolsSwift/Logs/app.log`
 - `~/.codex/auth.json`
 - `~/.codex/config.toml`
 - `~/.codex-tools-proxyd/api-proxy.key`
@@ -204,6 +220,7 @@ CodexSilo 是一个 macOS 原生 SwiftUI 工具，目标是把 Codex / ChatGPT �
 说明：
 
 - `accounts.json` 是应用自己的持久化 store，不只是账号列表
+- `Logs/` 目录保存应用自己的文件日志，不进 `accounts.json`
 - `accounts.json` 里还包含 settings 和 `currentSelection`
 - `~/.codex/auth.json` 是 live 当前账号文件
 - `~/.codex/config.toml` 会影响上游 base URL 和部分请求行为

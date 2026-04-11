@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 #if canImport(AppKit)
-import AppKit
+@preconcurrency import AppKit
 #endif
 
 struct RootScene: View {
@@ -77,6 +77,12 @@ struct RootScene: View {
                 idealHeight: LayoutRules.defaultWindowHeight
             )
             .frame(width: 0, height: 0)
+            WindowActivationObserver {
+                Task { @MainActor in
+                    await accountsModel.refreshAccountsOnWindowPresentation()
+                }
+            }
+            .frame(width: 0, height: 0)
         }
         .frame(
             minWidth: LayoutRules.minimumWindowWidth,
@@ -151,6 +157,62 @@ private struct WindowSizeEnforcer: NSViewRepresentable {
         targetSize.width = clampedWidth > 0 ? clampedWidth : idealWidth
         targetSize.height = clampedHeight > 0 ? clampedHeight : idealHeight
         window.setContentSize(targetSize)
+    }
+}
+
+private struct WindowActivationObserver: NSViewRepresentable {
+    let onWindowDidBecomeKey: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowActivationObserverView(frame: .zero)
+        view.onWindowDidBecomeKey = onWindowDidBecomeKey
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let observerView = nsView as? WindowActivationObserverView else { return }
+        observerView.onWindowDidBecomeKey = onWindowDidBecomeKey
+    }
+}
+
+private final class WindowActivationObserverView: NSView {
+    var onWindowDidBecomeKey: (@MainActor () -> Void)?
+    private weak var observedWindow: NSWindow?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        attachToCurrentWindowIfNeeded()
+    }
+
+    private func attachToCurrentWindowIfNeeded() {
+        if let observedWindow {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didBecomeKeyNotification,
+                object: observedWindow
+            )
+        }
+
+        guard let window else {
+            observedWindow = nil
+            return
+        }
+        guard observedWindow !== window else { return }
+        observedWindow = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+    }
+
+    @objc
+    private func handleWindowDidBecomeKey(_ notification: Notification) {
+        _ = notification
+        Task { @MainActor in
+            onWindowDidBecomeKey?()
+        }
     }
 }
 

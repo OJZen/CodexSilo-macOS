@@ -3,12 +3,12 @@ import SwiftUI
 import AppKit
 #endif
 
+private enum CodexSiloSceneID {
+    static let mainWindow = "codexsilo.main-window"
+}
+
 @main
 struct CodexSiloApp: App {
-    private enum SceneID {
-        static let mainWindow = "codexsilo.main-window"
-    }
-
     private let container: AppContainer
     private let mainWindowController: MainWindowController
     @StateObject private var trayModel: TrayMenuModel
@@ -17,16 +17,15 @@ struct CodexSiloApp: App {
     init() {
         let container = AppContainer.liveOrCrash()
         let mainWindowController = MainWindowController(
-            contentView: RootScene(container: container, trayModel: container.trayModel),
-            onWindowDidBecomeKey: { [accountsModel = container.accountsModel] in
-                await accountsModel.refreshAccountsOnWindowPresentation()
-            }
+            contentView: RootScene(container: container, trayModel: container.trayModel)
         )
         self.container = container
-        _trayModel = StateObject(wrappedValue: container.trayModel)
         self.mainWindowController = mainWindowController
-        Task { @MainActor in
+        _trayModel = StateObject(wrappedValue: container.trayModel)
+        CodexSiloAppDelegate.showMainWindow = { [mainWindowController] in
             mainWindowController.showWindow()
+        }
+        Task { @MainActor in
             container.trayModel.startBackgroundRefresh()
         }
     }
@@ -113,7 +112,9 @@ private struct TrayMenuContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            trayActionButton(title: "显示主页面", systemImage: "macwindow", action: onOpenMainWindow)
+            trayActionButton(title: "显示主页面", systemImage: "macwindow") {
+                onOpenMainWindow()
+            }
 
             Divider()
 
@@ -367,29 +368,35 @@ private struct TrayMenuAccountButton: View {
 
 @MainActor
 private final class CodexSiloAppDelegate: NSObject, NSApplicationDelegate {
+    static var showMainWindow: (() -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
         NSApplication.shared.setActivationPolicy(.regular)
+        Self.showMainWindow?()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         _ = sender
         return false
     }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        _ = sender
+        if !flag {
+            Self.showMainWindow?()
+        }
+        return true
+    }
 }
 
 @MainActor
-private final class MainWindowController: NSObject, NSWindowDelegate {
+private final class MainWindowController: NSObject {
     private let contentView: RootScene
-    private let onWindowDidBecomeKey: @MainActor () async -> Void
     private var window: NSWindow?
 
-    init(
-        contentView: RootScene,
-        onWindowDidBecomeKey: @escaping @MainActor () async -> Void = {}
-    ) {
+    init(contentView: RootScene) {
         self.contentView = contentView
-        self.onWindowDidBecomeKey = onWindowDidBecomeKey
     }
 
     func showWindow() {
@@ -397,18 +404,6 @@ private final class MainWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        _ = notification
-        NSApp.setActivationPolicy(.accessory)
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        _ = notification
-        Task { @MainActor [onWindowDidBecomeKey] in
-            await onWindowDidBecomeKey()
-        }
     }
 
     private func makeWindowIfNeeded() -> NSWindow {
@@ -428,13 +423,12 @@ private final class MainWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.delegate = self
         window.isReleasedWhenClosed = false
         window.title = "CodexSilo"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("codexsilo.main-window")
+        window.setFrameAutosaveName(CodexSiloSceneID.mainWindow)
         window.center()
         window.contentMinSize = NSSize(
             width: LayoutRules.minimumWindowWidth,

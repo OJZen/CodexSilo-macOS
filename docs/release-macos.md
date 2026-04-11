@@ -82,6 +82,7 @@ build/release/
 
 - `CodexSilo-1.0.0-macOS-notarized.zip`
 - `CodexSilo-1.0.0-macOS-notarized.zip.sha256`
+- 或者当前版本对应的 `CodexSilo-<version>-macOS-notarized.zip`
 
 ## 5. 只做本地签名验证
 
