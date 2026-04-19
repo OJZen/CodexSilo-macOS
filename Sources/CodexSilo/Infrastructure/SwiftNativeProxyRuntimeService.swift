@@ -5,7 +5,6 @@ import Darwin
 
 actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private enum ProxyLogDefaults {
-        static let maxStoredLogs = 50
         static let compatibilityWarningThrottleSeconds: Int64 = 300
     }
 
@@ -145,6 +144,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
     private var activeObservedRequestIDs = Set<Int>()
     private var nextObservedRequestID = 0
     private var compatibilityWarningLastLoggedAt: [String: Int64] = [:]
+    private var autoUniformLoadCursor = 0
 
     private let models = SwiftNativeProxyRuntimeService.clientVisibleModels
 
@@ -168,7 +168,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         loadPersistedMetricsIfNeeded()
         let running = server != nil
         let apiKey = (try? ensurePersistedAPIKey()) ?? nil
-        let availableAccounts = (try? loadCandidates().count) ?? 0
+        let availableAccounts = (try? loadCandidatePlan().candidates.count) ?? 0
         let localBaseURL = runningPort.map { "http://127.0.0.1:\($0)/v1" }
         let lanBaseURLs: [String]
         if running,
@@ -319,6 +319,7 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return
         }
         loadPersistedMetricsIfNeeded(forceReload: true)
+        autoUniformLoadCursor = 0
         logger.debug(
             category: .proxy,
             event: "runtime_sync_accounts_store",
@@ -784,7 +785,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         endpointKind: UpstreamEndpointKind = .responses
     ) async throws -> UpstreamResponse {
         let operationID = UUID().uuidString
-        let candidates = try loadCandidates()
+        let candidatePlan = try loadCandidatePlan()
+        let candidates = orderedCandidatesForRequest(candidatePlan)
         guard !candidates.isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
         }
@@ -898,7 +900,8 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         endpointKind: UpstreamEndpointKind = .responses
     ) async throws -> HTTPResponse {
         let operationID = UUID().uuidString
-        let candidates = try loadCandidates()
+        let candidatePlan = try loadCandidatePlan()
+        let candidates = orderedCandidatesForRequest(candidatePlan)
         guard !candidates.isEmpty else {
             throw AppError.invalidData(L10n.tr("error.proxy_runtime.no_accounts_available"))
         }
@@ -1613,34 +1616,104 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func loadCandidates() throws -> [ProxyCandidate] {
+    private func loadCandidatePlan() throws -> ProxyCandidatePlan {
         let store = try storeRepository.loadStore()
-        guard let selection = store.currentSelection else {
-            return []
+        if store.proxySelection?.mode == .autoUniform {
+            let candidates = store.accounts.compactMap { account in
+                try? makeProxyCandidate(from: account)
+            }
+            return ProxyCandidatePlan(
+                routingMode: .autoUniform,
+                candidates: candidates.sorted(by: stableAutoUniformCandidateOrder)
+            )
+        }
+
+        guard let selection = effectiveProxySelection(in: store) else {
+            return ProxyCandidatePlan(routingMode: .targetedSelection, candidates: [])
         }
 
         let candidates = try store.accounts.compactMap { account -> ProxyCandidate? in
             guard account.matchesSelection(
-                accountKey: selection.resolvedAccountKey,
-                variantKey: selection.resolvedVariantKey
+                accountKey: selection.accountKey,
+                variantKey: selection.variantKey
             ) else {
                 return nil
             }
-            let extracted = try authRepository.extractAuth(from: account.authJSON)
-            return ProxyCandidate(
-                id: account.id,
-                label: account.label,
-                accountID: extracted.accountID,
-                accessToken: extracted.accessToken,
-                authJSON: account.authJSON,
-                oneWeekUsed: account.usage?.oneWeek?.usedPercent,
-                fiveHourUsed: account.usage?.fiveHour?.usedPercent
+            return try makeProxyCandidate(from: account)
+        }
+
+        return ProxyCandidatePlan(
+            routingMode: .targetedSelection,
+            candidates: candidates.sorted { lhs, rhs in
+                lhs.remainingScore > rhs.remainingScore
+            }
+        )
+    }
+
+    private func effectiveProxySelection(
+        in store: AccountsStore
+    ) -> (accountKey: String, variantKey: String?)? {
+        if let proxySelection = store.proxySelection,
+           let proxyAccountKey = proxySelection.resolvedAccountKey,
+           store.accounts.contains(where: {
+               $0.matchesSelection(
+                   accountKey: proxyAccountKey,
+                   variantKey: proxySelection.resolvedVariantKey
+               )
+           }) {
+            return (
+                accountKey: proxyAccountKey,
+                variantKey: proxySelection.resolvedVariantKey
             )
         }
 
-        return candidates.sorted { lhs, rhs in
-            lhs.remainingScore > rhs.remainingScore
+        if let currentSelection = store.currentSelection,
+           store.accounts.contains(where: {
+               $0.matchesSelection(
+                   accountKey: currentSelection.resolvedAccountKey,
+                   variantKey: currentSelection.resolvedVariantKey
+               )
+           }) {
+            return (
+                accountKey: currentSelection.resolvedAccountKey,
+                variantKey: currentSelection.resolvedVariantKey
+            )
         }
+
+        return nil
+    }
+
+    private func makeProxyCandidate(from account: StoredAccount) throws -> ProxyCandidate {
+        let extracted = try authRepository.extractAuth(from: account.authJSON)
+        return ProxyCandidate(
+            id: account.id,
+            label: account.label,
+            accountID: extracted.accountID,
+            accessToken: extracted.accessToken,
+            authJSON: account.authJSON,
+            oneWeekUsed: account.usage?.oneWeek?.usedPercent,
+            fiveHourUsed: account.usage?.fiveHour?.usedPercent
+        )
+    }
+
+    private func orderedCandidatesForRequest(_ plan: ProxyCandidatePlan) -> [ProxyCandidate] {
+        switch plan.routingMode {
+        case .targetedSelection:
+            return plan.candidates
+        case .autoUniform:
+            guard !plan.candidates.isEmpty else { return [] }
+            let offset = autoUniformLoadCursor % plan.candidates.count
+            autoUniformLoadCursor = (autoUniformLoadCursor + 1) % plan.candidates.count
+            return Array(plan.candidates[offset...]) + Array(plan.candidates[..<offset])
+        }
+    }
+
+    private func stableAutoUniformCandidateOrder(lhs: ProxyCandidate, rhs: ProxyCandidate) -> Bool {
+        let labelOrder = lhs.label.localizedCaseInsensitiveCompare(rhs.label)
+        if labelOrder != .orderedSame {
+            return labelOrder == .orderedAscending
+        }
+        return lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
     }
 
     private func parseJSONObject(from data: Data) throws -> [String: Any] {
@@ -1996,26 +2069,12 @@ actor SwiftNativeProxyRuntimeService: ProxyRuntimeService {
             return
         }
         compatibilityWarningLastLoggedAt[signature] = now
-
-        do {
-            var store = try storeRepository.loadStore()
-            store.proxyLiveTestLogs.insert(
-                ProxyLiveTestLogEntry(
-                    id: UUID().uuidString,
-                    createdAt: now,
-                    model: model,
-                    status: .warning,
-                    message: message
-                ),
-                at: 0
-            )
-            if store.proxyLiveTestLogs.count > ProxyLogDefaults.maxStoredLogs {
-                store.proxyLiveTestLogs = Array(store.proxyLiveTestLogs.prefix(ProxyLogDefaults.maxStoredLogs))
-            }
-            try storeRepository.saveStore(store)
-        } catch {
-            // Logging should never interrupt successful proxy forwarding.
-        }
+        logger.warning(
+            category: .proxy,
+            event: "compatibility_warning",
+            message: message,
+            metadata: ["model": model]
+        )
     }
 
     private func canonicalizeCodexInputStructure(in payload: inout [String: Any], upstreamModel: String?) throws {
@@ -3523,6 +3582,16 @@ private struct ProxyCandidate {
         let fiveRemaining = max(0, 100 - fiveUsed)
         return weekRemaining * 0.7 + fiveRemaining * 0.3
     }
+}
+
+private enum ProxyCandidateRoutingMode {
+    case targetedSelection
+    case autoUniform
+}
+
+private struct ProxyCandidatePlan {
+    var routingMode: ProxyCandidateRoutingMode
+    var candidates: [ProxyCandidate]
 }
 
 private struct UpstreamResponse {

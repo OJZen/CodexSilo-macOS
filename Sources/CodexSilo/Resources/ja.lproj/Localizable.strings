@@ -143,10 +143,20 @@
 "proxy.action.start_api_proxy" = "API プロキシ開始";
 "proxy.action.stop_api_proxy" = "API プロキシ停止";
 "proxy.start_on_launch" = "起動時に開始";
+"proxy.selection.label" = "プロキシアカウント";
+"proxy.selection.follow_current" = "現在のアカウントに追従";
+"proxy.selection.follow_current_format" = "現在のアカウントに追従（%@）";
+"proxy.selection.custom_accounts_section" = "カスタムアカウント";
+"proxy.selection.auto_switch" = "自動切り替え";
+"proxy.selection.auto_switch_waiting" = "自動切り替え待機中";
+"proxy.selection.auto_uniform" = "均等負荷で自動分散";
+"proxy.selection.auto_uniform_format" = "均等負荷で自動分散（%@ アカウント）";
+"proxy.selection.account_current_format" = "%@ ・現在";
 "proxy.detail.base_url" = "Base URL";
 "proxy.detail.local_base_url" = "ローカル Base URL";
 "proxy.detail.lan_base_urls" = "LAN Base URLs";
 "proxy.detail.api_key" = "API Key";
+"proxy.detail.selected_account" = "選択中のプロキシアカウント";
 "proxy.detail.active_routed_account" = "現在のルーティング先アカウント";
 "proxy.detail.last_error" = "最新エラー";
 "proxy.detail.request_metrics" = "Request metrics";
@@ -164,6 +174,10 @@
 "proxy.value.never" = "Never";
 "proxy.value.generated_after_start" = "起動後に生成";
 "proxy.value.generated_after_first_start" = "初回起動後に生成";
+"proxy.info.selected_account_hint" = "プロキシ専用のアカウントを選ぶか、現在のアカウントに追従できます";
+"proxy.info.selected_account_auto_uniform_hint" = "利用可能なすべてのアカウントに対してできるだけ均等にリクエストを分散します";
+"proxy.info.selected_account_auto_uniform_format" = "%@ アカウント・均等分散";
+"proxy.info.selected_account_auto_uniform_last_hit_format" = "%@ アカウント・直近のルーティング先: %@";
 "proxy.info.no_request_matched" = "まだリクエストがありません";
 "proxy.info.active_account_hint" = "最初のリクエスト後に現在使用中アカウントを表示します";
 "proxy.section.remote_servers" = "リモートサーバー";
@@ -183,6 +197,7 @@
 "proxy.notice.api_proxy_started" = "API プロキシを開始しました";
 "proxy.notice.api_proxy_stopped" = "API プロキシを停止しました";
 "proxy.notice.api_key_refreshed" = "API Key を更新しました";
+"proxy.notice.selected_account_updated" = "プロキシアカウントを更新しました";
 "proxy.notice.auto_start_updated" = "自動起動設定を更新しました";
 "proxy.notice.metrics_reset" = "Proxy stats reset";
 "proxy.log.codex_parameters_stripped_format" = "Codex 上流へ転送する前に未対応のパラメータを削除しました: %@.";
@@ -267,6 +282,7 @@
 "error.remote.ssh_command_failed_format" = "SSH コマンドに失敗しました: %@";
 "error.remote.scp_failed_format" = "SCP に失敗しました: %@";
 "error.proxy_runtime.invalid_port_format" = "無効なプロキシポートです: %@";
+"error.proxy.account_not_found_for_selection" = "選択したプロキシアカウントが見つかりません";
 "error.proxy_runtime.start_swift_proxy_failed_format" = "Swift プロキシの起動に失敗しました: %@";
 "error.proxy_runtime.start_failed" = "プロキシの起動に失敗しました";
 "error.proxy_runtime.health_check_failed" = "Swift プロキシがヘルスチェックに失敗しました";

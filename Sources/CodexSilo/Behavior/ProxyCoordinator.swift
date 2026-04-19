@@ -111,6 +111,110 @@ final class ProxyCoordinator: @unchecked Sendable {
         return status
     }
 
+    func loadProxyAccountSelectionSnapshot() throws -> ProxyAccountSelectionSnapshot {
+        let store = try storeRepository.loadStore()
+        let currentOptionID = resolvedStoreAccountID(
+            in: store.accounts,
+            accountKey: store.currentSelection?.resolvedAccountKey,
+            variantKey: store.currentSelection?.resolvedVariantKey
+        )
+        let selectedOptionID = resolvedStoreAccountID(
+            in: store.accounts,
+            accountKey: manualSelectionAccountKey(for: store.proxySelection),
+            variantKey: manualSelectionVariantKey(for: store.proxySelection)
+        )
+        let selectedMode: ProxyAccountRoutingMode?
+        if store.proxySelection?.mode == .autoUniform {
+            selectedMode = .autoUniform
+        } else if selectedOptionID != nil {
+            selectedMode = .fixedAccount
+        } else {
+            selectedMode = nil
+        }
+
+        let options = store.accounts
+            .map { account in
+                ProxyAccountOption(
+                    id: account.id,
+                    label: account.label,
+                    detail: optionDetail(for: account),
+                    accountID: account.accountID,
+                    isCurrent: account.id == currentOptionID
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.isCurrent != rhs.isCurrent {
+                    return lhs.isCurrent
+                }
+                return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
+            }
+
+        return ProxyAccountSelectionSnapshot(
+            options: options,
+            mode: selectedMode,
+            selectedOptionID: selectedOptionID,
+            currentOptionID: currentOptionID
+        )
+    }
+
+    func updateProxyAccountSelection(
+        mode: ProxyAccountRoutingMode?,
+        optionID: String?
+    ) async throws -> ProxyAccountSelectionSnapshot {
+        var store = try storeRepository.loadStore()
+
+        switch mode {
+        case .fixedAccount:
+            guard let optionID else {
+                throw AppError.invalidData(L10n.tr("error.proxy.account_not_found_for_selection"))
+            }
+            guard let account = store.accounts.first(where: { $0.id == optionID }) else {
+                throw AppError.invalidData(L10n.tr("error.proxy.account_not_found_for_selection"))
+            }
+            store.proxySelection = ProxyAccountSelection(account: account)
+        case .autoUniform:
+            if let existingSelection = store.proxySelection,
+               existingSelection.mode == .fixedAccount {
+                store.proxySelection = ProxyAccountSelection(
+                    mode: .autoUniform,
+                    accountID: existingSelection.accountID,
+                    accountKey: existingSelection.accountKey,
+                    variantKey: existingSelection.variantKey
+                )
+            } else {
+                store.proxySelection = .autoUniform
+            }
+        case nil:
+            if let existingSelection = store.proxySelection,
+               existingSelection.mode == .autoUniform,
+               let restoredAccountID = resolvedStoreAccountID(
+                   in: store.accounts,
+                   accountKey: manualSelectionAccountKey(for: existingSelection),
+                   variantKey: manualSelectionVariantKey(for: existingSelection)
+               ),
+               let restoredAccount = store.accounts.first(where: { $0.id == restoredAccountID }) {
+                store.proxySelection = ProxyAccountSelection(account: restoredAccount)
+            } else {
+                store.proxySelection = nil
+            }
+        }
+
+        try storeRepository.saveStore(store)
+        try await proxyService.syncAccountsStore()
+
+        logger.info(
+            category: .proxy,
+            event: "selection_updated",
+            message: "Updated proxy account selection.",
+            metadata: [
+                "mode": mode?.rawValue ?? "followCurrent",
+                "option_id": optionID ?? ""
+            ]
+        )
+
+        return try loadProxyAccountSelectionSnapshot()
+    }
+
     func loadLiveTestLogs() throws -> [ProxyLiveTestLogEntry] {
         try storeRepository.loadStore().proxyLiveTestLogs
     }
@@ -316,6 +420,61 @@ final class ProxyCoordinator: @unchecked Sendable {
             "store": false,
             "input": liveTestInputItems()
         ]
+    }
+
+    private func resolvedStoreAccountID(
+        in accounts: [StoredAccount],
+        accountKey: String?,
+        variantKey: String?
+    ) -> String? {
+        accounts.first(where: {
+            $0.matchesSelection(accountKey: accountKey, variantKey: variantKey)
+        })?.id
+    }
+
+    private func manualSelectionAccountKey(for selection: ProxyAccountSelection?) -> String? {
+        guard let selection, let accountID = selection.accountID else {
+            return nil
+        }
+        return AccountIdentity.selectionIdentifier(
+            accountKey: selection.accountKey,
+            accountID: accountID
+        )
+    }
+
+    private func manualSelectionVariantKey(for selection: ProxyAccountSelection?) -> String? {
+        guard let selection else {
+            return nil
+        }
+        return AccountIdentity.variantIdentifier(variantKey: selection.variantKey)
+    }
+
+    private func optionDetail(for account: StoredAccount) -> String? {
+        let trimmedEmail = normalizedDetailText(account.email)
+        let trimmedTeamName = normalizedDetailText(account.teamAlias) ?? normalizedDetailText(account.teamName)
+
+        if let trimmedTeamName, !trimmedTeamName.isEmpty,
+           let trimmedEmail, !trimmedEmail.isEmpty {
+            return "\(trimmedTeamName) · \(trimmedEmail)"
+        }
+
+        if let trimmedEmail, !trimmedEmail.isEmpty {
+            return trimmedEmail
+        }
+
+        if let trimmedTeamName, !trimmedTeamName.isEmpty {
+            return trimmedTeamName
+        }
+
+        return nil
+    }
+
+    private func normalizedDetailText(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func liveTestCompactPayload(model: String) -> [String: Any] {

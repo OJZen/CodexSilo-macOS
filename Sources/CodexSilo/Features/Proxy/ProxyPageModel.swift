@@ -4,7 +4,7 @@ import Combine
 private struct ProxyPresentationState: Equatable {
     var proxyStatus: ApiProxyStatus
     var preferredPortText: String
-    var autoStartProxy: Bool
+    var proxyAccountSelection: ProxyAccountSelectionSnapshot
 }
 
 @MainActor
@@ -13,6 +13,7 @@ final class ProxyPageModel: ObservableObject {
         static let preferredPort = 8787
         static let liveTestErrorNoticeDelay = Duration.seconds(12)
         static let autoRefreshInterval = Duration.seconds(1)
+        static let followCurrentSelectionID = "__proxy.follow_current__"
     }
 
     private let coordinator: ProxyCoordinator
@@ -31,7 +32,10 @@ final class ProxyPageModel: ObservableObject {
     @Published var liveTestLogs: [ProxyLiveTestLogEntry] = []
     @Published var lastRefreshedAt: Int64?
     @Published var preferredPortText = String(Defaults.preferredPort)
-    @Published var autoStartProxy = false
+    @Published var proxyAccountOptions: [ProxyAccountOption] = []
+    @Published var selectedProxyAccountRoutingMode: ProxyAccountRoutingMode?
+    @Published var selectedProxyAccountOptionID: String?
+    @Published var currentProxyAccountOptionID: String?
 
     @Published var loading = false
     @Published var testingLiveRequest = false
@@ -73,7 +77,6 @@ final class ProxyPageModel: ObservableObject {
             metadata: ["auto_start": settings.autoStartApiProxy ? "true" : "false"]
         )
 
-        autoStartProxy = settings.autoStartApiProxy
         await refreshStatusOnly()
 
         guard settings.autoStartApiProxy, !proxyStatus.running else { return }
@@ -122,8 +125,7 @@ final class ProxyPageModel: ObservableObject {
         defer { loading = false }
 
         do {
-            let settings = try await settingsCoordinator.currentSettings()
-            autoStartProxy = settings.autoStartApiProxy
+            _ = try await settingsCoordinator.currentSettings()
             liveTestLogs = try coordinator.loadLiveTestLogs()
             await refreshStatusOnly()
             hasLoaded = true
@@ -303,18 +305,40 @@ final class ProxyPageModel: ObservableObject {
         }
     }
 
-    func setAutoStartProxy(_ value: Bool) async {
+    func setProxyAccountSelection(choiceID: String) async {
         guard !testingLiveRequest else { return }
-        let previousValue = autoStartProxy
-        autoStartProxy = value
+        loading = true
+        defer { loading = false }
 
         do {
-            _ = try await settingsCoordinator.updateSettings(
-                AppSettingsPatch(autoStartApiProxy: value)
+            let selectionSnapshot = try await coordinator.updateProxyAccountSelection(
+                mode: choiceID == Defaults.followCurrentSelectionID ? nil : .fixedAccount,
+                optionID: choiceID == Defaults.followCurrentSelectionID ? nil : choiceID
             )
-            notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.auto_start_updated"))
+            let status = await coordinator.loadStatus()
+            applyStatus(status, selectionSnapshot: selectionSnapshot)
+            lastRefreshedAt = dateProvider.unixSecondsNow()
+            notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.selected_account_updated"))
         } catch {
-            autoStartProxy = previousValue
+            notice = NoticeMessage(style: .error, text: error.localizedDescription)
+        }
+    }
+
+    func setAutoSwitchProxyAccounts(_ value: Bool) async {
+        guard !testingLiveRequest else { return }
+        loading = true
+        defer { loading = false }
+
+        do {
+            let selectionSnapshot = try await coordinator.updateProxyAccountSelection(
+                mode: value ? .autoUniform : nil,
+                optionID: nil
+            )
+            let status = await coordinator.loadStatus()
+            applyStatus(status, selectionSnapshot: selectionSnapshot)
+            lastRefreshedAt = dateProvider.unixSecondsNow()
+            notice = NoticeMessage(style: .success, text: L10n.tr("proxy.notice.selected_account_updated"))
+        } catch {
             notice = NoticeMessage(style: .error, text: error.localizedDescription)
         }
     }
@@ -322,7 +346,7 @@ final class ProxyPageModel: ObservableObject {
     private func refreshStatusOnly() async {
         guard runtimePlatform == .macOS else { return }
         let status = await coordinator.loadStatus()
-        applyStatus(status)
+        applyStatus(status, selectionSnapshot: refreshSelectionSnapshot())
         lastRefreshedAt = dateProvider.unixSecondsNow()
     }
 
@@ -330,17 +354,99 @@ final class ProxyPageModel: ObservableObject {
         loading || testingLiveRequest
     }
 
-    private func applyStatus(_ status: ApiProxyStatus, preferredPort: Int? = nil) {
+    var selectedProxyAccountPickerID: String {
+        selectedProxyAccountOptionID ?? Defaults.followCurrentSelectionID
+    }
+
+    var followCurrentSelectionID: String {
+        Defaults.followCurrentSelectionID
+    }
+
+    var followCurrentProxyAccountTitle: String {
+        if let currentOption = proxyAccountOptions.first(where: { $0.id == currentProxyAccountOptionID }) {
+            return L10n.tr("proxy.selection.follow_current_format", currentOption.label)
+        }
+        return L10n.tr("proxy.selection.follow_current")
+    }
+
+    var autoSwitchPickerTitle: String {
+        if let activeOption = activeProxyAccountOption {
+            return activeOption.label
+        }
+        if let activeAccountLabel = proxyStatus.activeAccountLabel, !activeAccountLabel.isEmpty {
+            return activeAccountLabel
+        }
+        return L10n.tr("proxy.selection.auto_switch_waiting")
+    }
+
+    var selectedProxyAccountHeadline: String {
+        if selectedProxyAccountRoutingMode == .autoUniform {
+            return L10n.tr("proxy.selection.auto_switch")
+        }
+        if let selectedOption = proxyAccountOptions.first(where: { $0.id == selectedProxyAccountOptionID }) {
+            return selectedOption.label
+        }
+        return followCurrentProxyAccountTitle
+    }
+
+    var selectedProxyAccountDetailText: String {
+        if selectedProxyAccountRoutingMode == .autoUniform {
+            if let activeAccountLabel = proxyStatus.activeAccountLabel,
+               !activeAccountLabel.isEmpty {
+                return L10n.tr(
+                    "proxy.info.selected_account_auto_uniform_last_hit_format",
+                    String(proxyAccountOptions.count),
+                    activeAccountLabel
+                )
+            }
+            return L10n.tr(
+                "proxy.info.selected_account_auto_uniform_format",
+                String(proxyAccountOptions.count)
+            )
+        }
+        if let selectedOption = proxyAccountOptions.first(where: { $0.id == selectedProxyAccountOptionID }) {
+            return selectedOption.detail ?? selectedOption.accountID
+        }
+        if let currentOption = proxyAccountOptions.first(where: { $0.id == currentProxyAccountOptionID }) {
+            return currentOption.detail ?? currentOption.accountID
+        }
+        return L10n.tr("proxy.info.selected_account_hint")
+    }
+
+    var followsCurrentProxyAccount: Bool {
+        selectedProxyAccountRoutingMode == nil
+    }
+
+    var usesAutoUniformProxyAccountRouting: Bool {
+        selectedProxyAccountRoutingMode == .autoUniform
+    }
+
+    private var activeProxyAccountOption: ProxyAccountOption? {
+        guard let activeAccountID = proxyStatus.activeAccountID else {
+            return nil
+        }
+        return proxyAccountOptions.first(where: { $0.accountID == activeAccountID })
+    }
+
+    private func applyStatus(
+        _ status: ApiProxyStatus,
+        preferredPort: Int? = nil,
+        selectionSnapshot: ProxyAccountSelectionSnapshot? = nil
+    ) {
+        let resolvedSelectionSnapshot = selectionSnapshot ?? currentProxyAccountSelectionSnapshot
         let nextState = ProxyPresentationState(
             proxyStatus: status,
             preferredPortText: String(preferredPort ?? status.port ?? Defaults.preferredPort),
-            autoStartProxy: autoStartProxy
+            proxyAccountSelection: resolvedSelectionSnapshot
         )
         guard nextState != currentPresentationState else { return }
 
         setIfChanged(\.proxyStatus, nextState.proxyStatus)
         setIfChanged(\.preferredPortText, nextState.preferredPortText)
-        setIfChanged(\.autoStartProxy, nextState.autoStartProxy)
+        setIfChanged(\.proxyAccountOptions, nextState.proxyAccountSelection.options)
+        setIfChanged(\.selectedProxyAccountRoutingMode, nextState.proxyAccountSelection.mode)
+        setIfChanged(\.selectedProxyAccountOptionID, nextState.proxyAccountSelection.selectedOptionID)
+        setIfChanged(\.currentProxyAccountOptionID, nextState.proxyAccountSelection.currentOptionID)
         reconcileAutoRefreshLoop()
     }
 
@@ -348,7 +454,16 @@ final class ProxyPageModel: ObservableObject {
         ProxyPresentationState(
             proxyStatus: proxyStatus,
             preferredPortText: preferredPortText,
-            autoStartProxy: autoStartProxy
+            proxyAccountSelection: currentProxyAccountSelectionSnapshot
+        )
+    }
+
+    private var currentProxyAccountSelectionSnapshot: ProxyAccountSelectionSnapshot {
+        ProxyAccountSelectionSnapshot(
+            options: proxyAccountOptions,
+            mode: selectedProxyAccountRoutingMode,
+            selectedOptionID: selectedProxyAccountOptionID,
+            currentOptionID: currentProxyAccountOptionID
         )
     }
 
@@ -393,7 +508,11 @@ final class ProxyPageModel: ObservableObject {
         guard !loading, !testingLiveRequest else { return }
 
         let status = await coordinator.loadStatus()
-        applyStatus(status)
+        applyStatus(status, selectionSnapshot: refreshSelectionSnapshot())
         lastRefreshedAt = dateProvider.unixSecondsNow()
+    }
+
+    private func refreshSelectionSnapshot() -> ProxyAccountSelectionSnapshot {
+        (try? coordinator.loadProxyAccountSelectionSnapshot()) ?? currentProxyAccountSelectionSnapshot
     }
 }

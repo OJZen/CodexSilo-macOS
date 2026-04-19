@@ -44,12 +44,284 @@ final class ProxyPageModelTests: XCTestCase {
 
         await model.loadIfNeeded()
 
-        XCTAssertTrue(model.autoStartProxy)
         XCTAssertTrue(model.proxyStatus.running)
         XCTAssertEqual(model.preferredPortText, "9001")
         XCTAssertEqual(model.lastRefreshedAt, 1_763_216_000)
         XCTAssertEqual(model.liveTestLogs.count, 1)
         XCTAssertEqual(model.liveTestLogs.first?.message, "HTTP 400: invalid request")
+    }
+
+    func testLoadIfNeededLoadsStoredProxyAccountSelection() async {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: secondary),
+                proxySelection: ProxyAccountSelection(account: primary)
+            )
+        )
+        let model = makeModel(
+            runtimeService: StubProxyRuntimeService(statusResult: makeRunningProxyStatus()),
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+
+        XCTAssertEqual(model.selectedProxyAccountRoutingMode, .fixedAccount)
+        XCTAssertEqual(model.currentProxyAccountOptionID, secondary.id)
+        XCTAssertEqual(model.selectedProxyAccountOptionID, primary.id)
+        XCTAssertEqual(model.selectedProxyAccountHeadline, primary.label)
+        XCTAssertEqual(model.selectedProxyAccountDetailText, "Alpha Team · primary@example.com")
+        XCTAssertEqual(model.proxyAccountOptions.first?.id, secondary.id)
+    }
+
+    func testSetProxyAccountSelectionPersistsExplicitSelection() async throws {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: primary)
+            )
+        )
+        let runtimeService = StubProxyRuntimeService(statusResult: makeRunningProxyStatus())
+        let model = makeModel(
+            runtimeService: runtimeService,
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+        await model.setProxyAccountSelection(choiceID: secondary.id)
+
+        let savedStore = try storeRepository.loadStore()
+        XCTAssertEqual(savedStore.proxySelection, ProxyAccountSelection(account: secondary))
+        XCTAssertEqual(model.selectedProxyAccountRoutingMode, .fixedAccount)
+        XCTAssertEqual(model.currentProxyAccountOptionID, primary.id)
+        XCTAssertEqual(model.selectedProxyAccountOptionID, secondary.id)
+        XCTAssertEqual(model.selectedProxyAccountHeadline, secondary.label)
+        XCTAssertEqual(model.selectedProxyAccountDetailText, "Beta Team · secondary@example.com")
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(model.notice?.text, L10n.tr("proxy.notice.selected_account_updated"))
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+    }
+
+    func testSetProxyAccountSelectionCanReturnToFollowCurrentAccount() async throws {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: secondary),
+                proxySelection: ProxyAccountSelection(account: primary)
+            )
+        )
+        let runtimeService = StubProxyRuntimeService(statusResult: makeRunningProxyStatus())
+        let model = makeModel(
+            runtimeService: runtimeService,
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+        await model.setProxyAccountSelection(choiceID: model.followCurrentSelectionID)
+
+        let savedStore = try storeRepository.loadStore()
+        XCTAssertNil(savedStore.proxySelection)
+        XCTAssertNil(model.selectedProxyAccountRoutingMode)
+        XCTAssertNil(model.selectedProxyAccountOptionID)
+        XCTAssertTrue(model.followsCurrentProxyAccount)
+        XCTAssertEqual(model.selectedProxyAccountPickerID, model.followCurrentSelectionID)
+        XCTAssertEqual(
+            model.selectedProxyAccountHeadline,
+            L10n.tr("proxy.selection.follow_current_format", secondary.label)
+        )
+        XCTAssertEqual(model.selectedProxyAccountDetailText, "Beta Team · secondary@example.com")
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+    }
+
+    func testSetAutoSwitchProxyAccountsCanEnableAutoUniformLoad() async throws {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: primary)
+            )
+        )
+        let runtimeService = StubProxyRuntimeService(statusResult: makeRunningProxyStatus())
+        let model = makeModel(
+            runtimeService: runtimeService,
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+        await model.setAutoSwitchProxyAccounts(true)
+
+        let savedStore = try storeRepository.loadStore()
+        XCTAssertEqual(savedStore.proxySelection, .autoUniform)
+        XCTAssertEqual(model.selectedProxyAccountRoutingMode, .autoUniform)
+        XCTAssertTrue(model.usesAutoUniformProxyAccountRouting)
+        XCTAssertEqual(model.autoSwitchPickerTitle, "Primary")
+        XCTAssertEqual(
+            model.selectedProxyAccountHeadline,
+            L10n.tr("proxy.selection.auto_switch")
+        )
+        XCTAssertEqual(
+            model.selectedProxyAccountDetailText,
+            L10n.tr("proxy.info.selected_account_auto_uniform_last_hit_format", "2", "Primary")
+        )
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+    }
+
+    func testSetAutoSwitchProxyAccountsCanReturnToFollowCurrentAccount() async throws {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: secondary),
+                proxySelection: .autoUniform
+            )
+        )
+        let runtimeService = StubProxyRuntimeService(statusResult: makeRunningProxyStatus())
+        let model = makeModel(
+            runtimeService: runtimeService,
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+        await model.setAutoSwitchProxyAccounts(false)
+
+        let savedStore = try storeRepository.loadStore()
+        XCTAssertNil(savedStore.proxySelection)
+        XCTAssertNil(model.selectedProxyAccountRoutingMode)
+        XCTAssertNil(model.selectedProxyAccountOptionID)
+        XCTAssertTrue(model.followsCurrentProxyAccount)
+        XCTAssertEqual(model.selectedProxyAccountPickerID, model.followCurrentSelectionID)
+        XCTAssertEqual(
+            model.selectedProxyAccountHeadline,
+            L10n.tr("proxy.selection.follow_current_format", secondary.label)
+        )
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 1)
+    }
+
+    func testSetAutoSwitchProxyAccountsRestoresPreviousExplicitSelection() async throws {
+        let primary = makeStoredProxyAccount(
+            id: "stored-primary",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com",
+            teamAlias: "Alpha Team"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "stored-secondary",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com",
+            teamAlias: "Beta Team"
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [primary, secondary],
+                currentSelection: makeCurrentSelection(for: primary),
+                proxySelection: ProxyAccountSelection(account: secondary)
+            )
+        )
+        let runtimeService = StubProxyRuntimeService(statusResult: makeRunningProxyStatus())
+        let model = makeModel(
+            runtimeService: runtimeService,
+            storeRepository: storeRepository
+        )
+
+        await model.loadIfNeeded()
+        await model.setAutoSwitchProxyAccounts(true)
+        await model.setAutoSwitchProxyAccounts(false)
+
+        let savedStore = try storeRepository.loadStore()
+        XCTAssertEqual(savedStore.proxySelection, ProxyAccountSelection(account: secondary))
+        XCTAssertEqual(model.selectedProxyAccountRoutingMode, .fixedAccount)
+        XCTAssertEqual(model.selectedProxyAccountOptionID, secondary.id)
+        XCTAssertFalse(model.followsCurrentProxyAccount)
+        XCTAssertEqual(model.selectedProxyAccountPickerID, secondary.id)
+        XCTAssertEqual(model.selectedProxyAccountHeadline, secondary.label)
+        XCTAssertEqual(model.selectedProxyAccountDetailText, "Beta Team · secondary@example.com")
+        XCTAssertEqual(model.notice?.style, .success)
+        XCTAssertEqual(runtimeService.syncAccountsStoreCallCount, 2)
     }
 
     func testBootstrapStartsProxyWhenAutoStartEnabledAndProxyIsStopped() async {
@@ -110,17 +382,6 @@ final class ProxyPageModelTests: XCTestCase {
         XCTAssertTrue(model.proxyStatus.running)
         XCTAssertEqual(model.notice?.style, .success)
         XCTAssertEqual(model.notice?.text, L10n.tr("proxy.notice.api_proxy_started"))
-    }
-
-    func testSetAutoStartProxyRevertsValueWhenSettingsUpdateFails() async {
-        let model = makeModel(storeRepository: FailingAccountsStoreRepository())
-
-        XCTAssertFalse(model.autoStartProxy)
-
-        await model.setAutoStartProxy(true)
-
-        XCTAssertFalse(model.autoStartProxy)
-        XCTAssertEqual(model.notice?.style, .error)
     }
 
     func testTestLiveRequestPublishesSuccessNoticeAndRefreshesStatus() async throws {
@@ -689,6 +950,70 @@ private actor ProxyLiveTestRequestProbe {
         lastRequest = request
         requests.append(request)
     }
+}
+
+private func makeRunningProxyStatus(
+    port: Int = 8787,
+    availableAccounts: Int = 1,
+    activeAccountID: String? = "acct-1",
+    activeAccountLabel: String? = "Primary"
+) -> ApiProxyStatus {
+    ApiProxyStatus(
+        running: true,
+        port: port,
+        apiKey: "api-key",
+        baseURL: "http://127.0.0.1:\(port)/v1",
+        availableAccounts: availableAccounts,
+        activeAccountID: activeAccountID,
+        activeAccountLabel: activeAccountLabel,
+        lastError: nil
+    )
+}
+
+private func makeCurrentSelection(
+    for account: StoredAccount,
+    selectedAt: Int64 = 0,
+    sourceDeviceID: String = "macos-local"
+) -> CurrentAccountSelection {
+    CurrentAccountSelection(
+        accountID: account.accountID,
+        accountKey: account.accountKey,
+        variantKey: account.variantKey,
+        selectedAt: selectedAt,
+        sourceDeviceID: sourceDeviceID
+    )
+}
+
+private func makeStoredProxyAccount(
+    id: String = "acct-1",
+    label: String = "Primary",
+    accountID: String = "acct",
+    accessToken: String = "token",
+    email: String = "proxy@example.com",
+    teamName: String? = nil,
+    teamAlias: String? = nil,
+    usage: UsageSnapshot? = nil
+) -> StoredAccount {
+    StoredAccount(
+        id: id,
+        label: label,
+        email: email,
+        accountID: accountID,
+        planType: "pro",
+        teamName: teamName,
+        teamAlias: teamAlias,
+        authJSON: .object([
+            "tokens": .object([
+                "access_token": .string(accessToken),
+                "account_id": .string(accountID),
+                "id_token": .string("id-token-\(id)")
+            ])
+        ]),
+        addedAt: 0,
+        updatedAt: 0,
+        usage: usage,
+        usageError: nil
+    )
 }
 
 private func assertLiveTestInputShape(

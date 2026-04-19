@@ -29,18 +29,7 @@ struct ApiProxySectionView: View {
                     }
                 }
 
-                Toggle(isOn: Binding(
-                    get: { model.autoStartProxy },
-                    set: { value in
-                        Task { await model.setAutoStartProxy(value) }
-                    }
-                )) {
-                    Text("proxy.start_on_launch")
-                        .font(.subheadline)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.regular)
-                .disabled(model.controlsBusy)
+                proxyAccountPicker
             }
         }
     }
@@ -85,6 +74,14 @@ struct ApiProxySectionView: View {
                 Divider()
 
                 ProxyDetailRow(
+                    title: L10n.tr("proxy.detail.selected_account"),
+                    headline: model.selectedProxyAccountHeadline,
+                    detailText: model.selectedProxyAccountDetailText
+                )
+
+                Divider()
+
+                ProxyDetailRow(
                     title: L10n.tr("proxy.detail.active_routed_account"),
                     headline: model.proxyStatus.activeAccountLabel ?? L10n.tr("proxy.info.no_request_matched"),
                     detailText: model.proxyStatus.activeAccountID ?? L10n.tr("proxy.info.active_account_hint")
@@ -100,22 +97,11 @@ struct ApiProxySectionView: View {
 
                 Divider()
 
-                ProxyValueRow(
-                    title: L10n.tr("proxy.detail.request_metrics"),
-                    value: requestMetricsValue,
-                    canCopy: false
+                ProxyMetricsSection(
+                    metrics: model.proxyStatus.metrics,
+                    controlsBusy: model.controlsBusy
                 ) {
-                    Button {
-                        Task { await model.resetMetrics() }
-                    } label: {
-                        Text(L10n.tr("proxy.action.reset_metrics"))
-                    }
-                    .codexsiloActionButtonStyle()
-                    .disabled(
-                        model.controlsBusy
-                            || model.proxyStatus.metrics == .empty
-                            || model.proxyStatus.metrics.inFlightRequests > 0
-                    )
+                    Task { await model.resetMetrics() }
                 }
 
                 Divider()
@@ -150,19 +136,6 @@ struct ApiProxySectionView: View {
                 metricChip(text: L10n.tr("proxy.metric.total_tokens_format", String(model.proxyStatus.metrics.totalTokens)))
             }
         }
-    }
-
-    private var requestMetricsValue: String {
-        let metrics = model.proxyStatus.metrics
-        return [
-            "\(L10n.tr("proxy.metric.in_flight_label")): \(metrics.inFlightRequests)",
-            "\(L10n.tr("proxy.metric.total_requests_label")): \(metrics.totalRequests)",
-            "\(L10n.tr("proxy.metric.successful_requests_label")): \(metrics.successfulRequests)",
-            "\(L10n.tr("proxy.metric.failed_requests_label")): \(metrics.failedRequests)",
-            "\(L10n.tr("proxy.metric.prompt_tokens_label")): \(metrics.promptTokens)",
-            "\(L10n.tr("proxy.metric.completion_tokens_label")): \(metrics.completionTokens)",
-            "\(L10n.tr("proxy.metric.total_tokens_label")): \(metrics.totalTokens)"
-        ].joined(separator: "\n")
     }
 
     private var lastResponseHeadline: String {
@@ -262,6 +235,84 @@ struct ApiProxySectionView: View {
         }
     }
 
+    private var proxyAccountPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.tr("proxy.selection.label"))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .center, spacing: 12) {
+                Group {
+                    if model.usesAutoUniformProxyAccountRouting {
+                        disabledProxyAccountField(title: model.autoSwitchPickerTitle)
+                    } else {
+                        Picker("", selection: Binding(
+                            get: { model.selectedProxyAccountPickerID },
+                            set: { newValue in
+                                Task { await model.setProxyAccountSelection(choiceID: newValue) }
+                            }
+                        )) {
+                            Text(model.followCurrentProxyAccountTitle)
+                                .tag(model.followCurrentSelectionID)
+
+                            Section(L10n.tr("proxy.selection.custom_accounts_section")) {
+                                ForEach(model.proxyAccountOptions) { option in
+                                    Text(proxyAccountOptionTitle(option))
+                                        .tag(option.id)
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .disabled(model.controlsBusy || model.proxyAccountOptions.isEmpty)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Toggle(isOn: Binding(
+                    get: { model.usesAutoUniformProxyAccountRouting },
+                    set: { value in
+                        Task { await model.setAutoSwitchProxyAccounts(value) }
+                    }
+                )) {
+                    Text(L10n.tr("proxy.selection.auto_switch"))
+                        .font(.subheadline)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+                .disabled(model.controlsBusy || model.proxyAccountOptions.isEmpty)
+            }
+
+            Text(model.selectedProxyAccountDetailText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private func disabledProxyAccountField(title: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frostedRoundedInput()
+        .opacity(0.65)
+    }
+
+    private func proxyAccountOptionTitle(_ option: ProxyAccountOption) -> String {
+        if option.isCurrent {
+            return L10n.tr("proxy.selection.account_current_format", option.label)
+        }
+        return option.label
+    }
+
     private func proxyPanel<Content: View>(
         tint: Color? = nil,
         @ViewBuilder content: () -> Content
@@ -341,5 +392,90 @@ private struct ProxyDetailRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ProxyMetricsSection: View {
+    let metrics: ApiProxyMetrics
+    let controlsBusy: Bool
+    let onReset: () -> Void
+
+    private let columns = [
+        GridItem(.flexible(minimum: 120), spacing: 10),
+        GridItem(.flexible(minimum: 120), spacing: 10),
+        GridItem(.flexible(minimum: 120), spacing: 10)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(L10n.tr("proxy.detail.request_metrics"))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button {
+                    onReset()
+                } label: {
+                    Text(L10n.tr("proxy.action.reset_metrics"))
+                }
+                .codexsiloActionButtonStyle()
+                .disabled(
+                    controlsBusy
+                        || metrics == .empty
+                        || metrics.inFlightRequests > 0
+                )
+            }
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.total_requests_label"),
+                    value: metrics.totalRequests
+                )
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.successful_requests_label"),
+                    value: metrics.successfulRequests
+                )
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.failed_requests_label"),
+                    value: metrics.failedRequests
+                )
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.prompt_tokens_label"),
+                    value: metrics.promptTokens
+                )
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.completion_tokens_label"),
+                    value: metrics.completionTokens
+                )
+                ProxyMetricTile(
+                    title: L10n.tr("proxy.metric.total_tokens_label"),
+                    value: metrics.totalTokens
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ProxyMetricTile: View {
+    let title: String
+    let value: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(value.formatted())
+                .font(.title3.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frostedRoundedSurface(cornerRadius: 10)
     }
 }

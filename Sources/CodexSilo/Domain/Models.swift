@@ -12,6 +12,7 @@ struct AccountsStore: Codable, Equatable {
     var version: Int = 1
     var accounts: [StoredAccount] = []
     var currentSelection: CurrentAccountSelection?
+    var proxySelection: ProxyAccountSelection?
     var accountsOverviewCollapsed: Bool = false
     var proxyLiveTestLogs: [ProxyLiveTestLogEntry] = []
     var proxyMetrics: ApiProxyMetrics = .empty
@@ -21,6 +22,7 @@ struct AccountsStore: Codable, Equatable {
         case version
         case accounts
         case currentSelection
+        case proxySelection
         case accountsOverviewCollapsed
         case proxyLiveTestLogs
         case proxyMetrics
@@ -31,6 +33,7 @@ struct AccountsStore: Codable, Equatable {
         version: Int = 1,
         accounts: [StoredAccount] = [],
         currentSelection: CurrentAccountSelection? = nil,
+        proxySelection: ProxyAccountSelection? = nil,
         accountsOverviewCollapsed: Bool = false,
         proxyLiveTestLogs: [ProxyLiveTestLogEntry] = [],
         proxyMetrics: ApiProxyMetrics = .empty,
@@ -39,6 +42,7 @@ struct AccountsStore: Codable, Equatable {
         self.version = version
         self.accounts = accounts
         self.currentSelection = currentSelection
+        self.proxySelection = proxySelection
         self.accountsOverviewCollapsed = accountsOverviewCollapsed
         self.proxyLiveTestLogs = proxyLiveTestLogs
         self.proxyMetrics = proxyMetrics
@@ -50,6 +54,7 @@ struct AccountsStore: Codable, Equatable {
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
         accounts = try container.decodeIfPresent([StoredAccount].self, forKey: .accounts) ?? []
         currentSelection = try container.decodeIfPresent(CurrentAccountSelection.self, forKey: .currentSelection)
+        proxySelection = try container.decodeIfPresent(ProxyAccountSelection.self, forKey: .proxySelection)
         accountsOverviewCollapsed = try container.decodeIfPresent(Bool.self, forKey: .accountsOverviewCollapsed) ?? false
         proxyLiveTestLogs = try container.decodeIfPresent([ProxyLiveTestLogEntry].self, forKey: .proxyLiveTestLogs) ?? []
         proxyMetrics = try container.decodeIfPresent(ApiProxyMetrics.self, forKey: .proxyMetrics) ?? .empty
@@ -61,6 +66,7 @@ struct AccountsStore: Codable, Equatable {
         try container.encode(version, forKey: .version)
         try container.encode(accounts, forKey: .accounts)
         try container.encodeIfPresent(currentSelection, forKey: .currentSelection)
+        try container.encodeIfPresent(proxySelection, forKey: .proxySelection)
         try container.encode(accountsOverviewCollapsed, forKey: .accountsOverviewCollapsed)
         try container.encode(proxyLiveTestLogs, forKey: .proxyLiveTestLogs)
         try container.encode(proxyMetrics, forKey: .proxyMetrics)
@@ -138,6 +144,72 @@ struct CurrentAccountSelectionPullResult: Equatable, Sendable {
         accountKey: nil,
         variantKey: nil
     )
+}
+
+enum ProxyAccountRoutingMode: String, Codable, Equatable {
+    case fixedAccount
+    case autoUniform
+}
+
+struct ProxyAccountSelection: Codable, Equatable {
+    var mode: ProxyAccountRoutingMode
+    var accountID: String?
+    var accountKey: String?
+    var variantKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case accountID = "accountId"
+        case accountKey
+        case variantKey
+    }
+
+    init(
+        mode: ProxyAccountRoutingMode = .fixedAccount,
+        accountID: String? = nil,
+        accountKey: String? = nil,
+        variantKey: String? = nil
+    ) {
+        self.mode = mode
+        self.accountID = accountID
+        self.accountKey = accountKey
+        self.variantKey = variantKey
+    }
+
+    init(account: StoredAccount) {
+        mode = .fixedAccount
+        accountID = account.accountID
+        accountKey = account.accountKey
+        variantKey = account.variantKey
+    }
+
+    static let autoUniform = ProxyAccountSelection(mode: .autoUniform)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try container.decodeIfPresent(ProxyAccountRoutingMode.self, forKey: .mode) ?? .fixedAccount
+        accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
+        accountKey = try container.decodeIfPresent(String.self, forKey: .accountKey)
+        variantKey = try container.decodeIfPresent(String.self, forKey: .variantKey)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encodeIfPresent(accountID, forKey: .accountID)
+        try container.encodeIfPresent(accountKey, forKey: .accountKey)
+        try container.encodeIfPresent(variantKey, forKey: .variantKey)
+    }
+
+    var resolvedAccountKey: String? {
+        guard mode == .fixedAccount, let accountID else { return nil }
+        return AccountIdentity.selectionIdentifier(accountKey: accountKey, accountID: accountID)
+    }
+
+    var resolvedVariantKey: String? {
+        guard mode == .fixedAccount else { return nil }
+        return AccountIdentity.variantIdentifier(variantKey: variantKey)
+    }
 }
 
 struct AccountsCloudSyncPullResult: Equatable, Sendable {
@@ -302,6 +374,28 @@ struct AccountSummary: Equatable, Identifiable {
             return false
         }
     }
+}
+
+struct ProxyAccountOption: Equatable, Identifiable {
+    var id: String
+    var label: String
+    var detail: String?
+    var accountID: String
+    var isCurrent: Bool
+}
+
+struct ProxyAccountSelectionSnapshot: Equatable {
+    var options: [ProxyAccountOption]
+    var mode: ProxyAccountRoutingMode?
+    var selectedOptionID: String?
+    var currentOptionID: String?
+
+    static let empty = ProxyAccountSelectionSnapshot(
+        options: [],
+        mode: nil,
+        selectedOptionID: nil,
+        currentOptionID: nil
+    )
 }
 
 enum AccountsRefreshFailure: Equatable {

@@ -548,6 +548,240 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         XCTAssertEqual(status.activeAccountLabel, "Secondary")
     }
 
+    func testProxyRoutesRequestsUsingExplicitProxySelectionOverCurrentSelection() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 62001...65000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return HTTPResponse.json(statusCode: 200, object: [
+                "id": "resp_proxy_selection",
+                "created_at": 123,
+                "model": "gpt-5.4",
+                "status": "completed",
+                "output": [[
+                    "type": "message",
+                    "content": [[
+                        "type": "output_text",
+                        "text": "proxy selection ok"
+                    ]]
+                ]]
+            ])
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let primary = makeStoredProxyAccount(
+            id: "acct-1",
+            label: "Primary",
+            accountID: "acct-primary",
+            accessToken: "token-primary",
+            email: "primary@example.com"
+        )
+        let secondary = makeStoredProxyAccount(
+            id: "acct-2",
+            label: "Secondary",
+            accountID: "acct-secondary",
+            accessToken: "token-secondary",
+            email: "secondary@example.com"
+        )
+        let currentSelection = CurrentAccountSelection(
+            accountID: secondary.accountID,
+            accountKey: secondary.accountKey,
+            variantKey: secondary.variantKey,
+            selectedAt: 1,
+            sourceDeviceID: "macos-local"
+        )
+        let proxySelection = ProxyAccountSelection(account: primary)
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(
+                store: makeProxyStore(
+                    accounts: [primary, secondary],
+                    currentSelection: currentSelection,
+                    proxySelection: proxySelection
+                )
+            ),
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(proxyPort)/v1/responses")!)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-5.4",
+            "store": false,
+            "input": [[
+                "type": "message",
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": "route to explicit proxy account"
+                ]]
+            ]]
+        ])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+
+        let upstreamRequest = await upstreamProbe.lastRequest
+        XCTAssertEqual(upstreamRequest?.headers["authorization"], "Bearer token-primary")
+        XCTAssertEqual(upstreamRequest?.headers["chatgpt-account-id"], "acct-primary")
+
+        let status = await runtime.status()
+        XCTAssertEqual(status.activeAccountID, "acct-primary")
+        XCTAssertEqual(status.activeAccountLabel, "Primary")
+    }
+
+    func testProxyRoutesRequestsUsingAutoUniformLoadAcrossAccounts() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let upstreamPort = Int.random(in: 62001...65000)
+        let upstreamProbe = UpstreamRequestProbe()
+        let upstreamServer = try SimpleHTTPServer(port: UInt16(upstreamPort)) { request in
+            await upstreamProbe.record(request: request)
+            return HTTPResponse.json(statusCode: 200, object: [
+                "id": "resp_proxy_uniform",
+                "created_at": 123,
+                "model": "gpt-5.4",
+                "status": "completed",
+                "output": [[
+                    "type": "message",
+                    "content": [[
+                        "type": "output_text",
+                        "text": "proxy uniform ok"
+                    ]]
+                ]]
+            ])
+        }
+        upstreamServer.start()
+        defer { upstreamServer.stop() }
+
+        let alpha = makeStoredProxyAccount(
+            id: "acct-1",
+            label: "Alpha",
+            accountID: "acct-alpha",
+            accessToken: "token-alpha",
+            email: "alpha@example.com"
+        )
+        let beta = makeStoredProxyAccount(
+            id: "acct-2",
+            label: "Beta",
+            accountID: "acct-beta",
+            accessToken: "token-beta",
+            email: "beta@example.com"
+        )
+        let gamma = makeStoredProxyAccount(
+            id: "acct-3",
+            label: "Gamma",
+            accountID: "acct-gamma",
+            accessToken: "token-gamma",
+            email: "gamma@example.com"
+        )
+
+        let paths = FileSystemPaths(
+            applicationSupportDirectory: tempDir,
+            accountStorePath: tempDir.appendingPathComponent("accounts.json"),
+            codexAuthPath: tempDir.appendingPathComponent("auth.json"),
+            codexConfigPath: tempDir.appendingPathComponent("config.toml"),
+            proxyDaemonDataDirectory: tempDir.appendingPathComponent("proxyd", isDirectory: true),
+            proxyDaemonKeyPath: tempDir.appendingPathComponent("proxyd/api-proxy.key")
+        )
+        try """
+        chatgpt_base_url = "http://127.0.0.1:\(upstreamPort)"
+        """.write(to: paths.codexConfigPath, atomically: true, encoding: .utf8)
+
+        let runtime = SwiftNativeProxyRuntimeService(
+            paths: paths,
+            storeRepository: StaticStoreRepository(
+                store: makeProxyStore(
+                    accounts: [alpha, beta, gamma],
+                    currentSelection: CurrentAccountSelection(
+                        accountID: alpha.accountID,
+                        accountKey: alpha.accountKey,
+                        variantKey: alpha.variantKey,
+                        selectedAt: 0,
+                        sourceDeviceID: "macos-local"
+                    ),
+                    proxySelection: .autoUniform
+                )
+            ),
+            authRepository: MockAuthRepository()
+        )
+
+        let proxyPort = Int.random(in: 52001...57000)
+        let started = try await runtime.start(preferredPort: proxyPort)
+        defer {
+            Task { _ = await runtime.stop() }
+        }
+
+        for index in 0..<4 {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(proxyPort)/v1/responses")!)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "model": "gpt-5.4",
+                "store": false,
+                "input": [[
+                    "type": "message",
+                    "role": "user",
+                    "content": [[
+                        "type": "input_text",
+                        "text": "uniform request \(index)"
+                    ]]
+                ]]
+            ])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(started.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        }
+
+        let requests = await upstreamProbe.requests
+        XCTAssertEqual(requests.map { $0.headers["authorization"] }, [
+            "Bearer token-alpha",
+            "Bearer token-beta",
+            "Bearer token-gamma",
+            "Bearer token-alpha"
+        ])
+        XCTAssertEqual(requests.map { $0.headers["chatgpt-account-id"] }, [
+            "acct-alpha",
+            "acct-beta",
+            "acct-gamma",
+            "acct-alpha"
+        ])
+
+        let status = await runtime.status()
+        XCTAssertEqual(status.availableAccounts, 3)
+        XCTAssertEqual(status.activeAccountID, "acct-alpha")
+        XCTAssertEqual(status.activeAccountLabel, "Alpha")
+    }
+
     func testSuccessfulProxyRequestDoesNotEmitVerbosePerRequestLogs() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2111,6 +2345,7 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
 
     func testResponsesStripsCodexTokenLimitParameters() async throws {
         let storeRepository = LogTrackingStoreRepository(store: makeProxyStore())
+        let logger = RecordingAppLogger()
         let roundTrip = try await exerciseProxyRequest(
             route: "/v1/responses",
             requestObject: [
@@ -2119,18 +2354,20 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
                 "max_output_tokens": 128
             ],
             upstreamResponse: completedResponsesSSE(text: "hello"),
-            storeRepository: storeRepository
+            storeRepository: storeRepository,
+            logger: logger
         )
 
         let upstreamBody = roundTrip.snapshot.jsonBody
         XCTAssertEqual(upstreamBody["model"] as? String, "gpt-5.4")
         XCTAssertNil(upstreamBody["max_tokens"])
         XCTAssertNil(upstreamBody["max_output_tokens"])
-
-        let logEntry = try XCTUnwrap(storeRepository.loadStore().proxyLiveTestLogs.first)
-        XCTAssertEqual(logEntry.status, .warning)
-        XCTAssertEqual(logEntry.model, "gpt-5.4")
-        XCTAssertTrue(logEntry.message.contains("max_output_tokens"))
+        XCTAssertTrue(try storeRepository.loadStore().proxyLiveTestLogs.isEmpty)
+        XCTAssertEqual(storeRepository.proxyLogSaveCount, 0)
+        XCTAssertEqual(
+            logger.recordedScopes().filter { $0 == "proxy.compatibility_warning" }.count,
+            1
+        )
     }
 
     func testRepeatedCompatibilityWarningsAreThrottledBeforePersisting() async throws {
@@ -2169,11 +2406,13 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
 
         let storeRepository = LogTrackingStoreRepository(store: makeProxyStore())
         let dateProvider = MutableDateProvider(now: 1_763_300_000)
+        let logger = RecordingAppLogger()
         let runtime = SwiftNativeProxyRuntimeService(
             paths: paths,
             storeRepository: storeRepository,
             authRepository: MockAuthRepository(),
-            dateProvider: dateProvider
+            dateProvider: dateProvider,
+            logger: logger
         )
 
         let proxyPort = Int.random(in: 52001...57000)
@@ -2198,17 +2437,27 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         }
 
         _ = try await URLSession.shared.data(for: makeRequest())
-        let logSavesAfterFirstRequest = storeRepository.proxyLogSaveCount
-        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 1)
+        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 0)
+        XCTAssertEqual(storeRepository.proxyLogSaveCount, 0)
+        let warningLogsAfterFirstRequest = logger.recordedScopes().filter { $0 == "proxy.compatibility_warning" }.count
+        XCTAssertEqual(warningLogsAfterFirstRequest, 1)
 
         _ = try await URLSession.shared.data(for: makeRequest())
-        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 1)
-        XCTAssertEqual(storeRepository.proxyLogSaveCount, logSavesAfterFirstRequest)
+        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 0)
+        XCTAssertEqual(storeRepository.proxyLogSaveCount, 0)
+        XCTAssertEqual(
+            logger.recordedScopes().filter { $0 == "proxy.compatibility_warning" }.count,
+            warningLogsAfterFirstRequest
+        )
 
         dateProvider.now += 301
         _ = try await URLSession.shared.data(for: makeRequest())
-        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 2)
-        XCTAssertGreaterThan(storeRepository.proxyLogSaveCount, logSavesAfterFirstRequest)
+        XCTAssertEqual(try storeRepository.loadStore().proxyLiveTestLogs.count, 0)
+        XCTAssertEqual(storeRepository.proxyLogSaveCount, 0)
+        XCTAssertEqual(
+            logger.recordedScopes().filter { $0 == "proxy.compatibility_warning" }.count,
+            2
+        )
     }
 
     func testChatCompletionsStripsCodexTokenLimitParameters() async throws {
@@ -2381,7 +2630,8 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         route: String,
         requestObject: [String: Any],
         upstreamResponse: HTTPResponse,
-        storeRepository: AccountsStoreRepository? = nil
+        storeRepository: AccountsStoreRepository? = nil,
+        logger: AppLogger = NoopAppLogger.shared
     ) async throws -> (data: Data, response: HTTPURLResponse, snapshot: UpstreamRequestProbe.Snapshot) {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2411,7 +2661,8 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
         let runtime = SwiftNativeProxyRuntimeService(
             paths: paths,
             storeRepository: storeRepository ?? StaticStoreRepository(store: makeProxyStore()),
-            authRepository: MockAuthRepository()
+            authRepository: MockAuthRepository(),
+            logger: logger
         )
 
         let proxyPort = Int.random(in: 52001...57000)
@@ -2902,7 +3153,8 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
     private func makeProxyStore(
         settings: AppSettings = .defaultValue,
         accounts: [StoredAccount]? = nil,
-        currentSelection: CurrentAccountSelection? = nil
+        currentSelection: CurrentAccountSelection? = nil,
+        proxySelection: ProxyAccountSelection? = nil
     ) -> AccountsStore {
         let resolvedAccounts = accounts ?? [makeStoredProxyAccount()]
         return AccountsStore(
@@ -2916,6 +3168,7 @@ final class SwiftNativeProxyRuntimeServiceTests: XCTestCase {
                     sourceDeviceID: "macos-local"
                 )
             },
+            proxySelection: proxySelection,
             settings: settings
         )
     }
