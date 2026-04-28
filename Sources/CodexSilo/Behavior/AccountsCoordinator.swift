@@ -26,6 +26,27 @@ actor AccountsCoordinator {
         let transientFailureReason: String?
     }
 
+    private struct ResolvedAuthContext {
+        let authJSON: JSONValue
+        let extracted: ExtractedAuth
+    }
+
+    private struct UsageFetchContext {
+        let authContext: ResolvedAuthContext
+        let usage: UsageSnapshot
+    }
+
+    private struct WorkspaceMetadataFetchContext {
+        let authContext: ResolvedAuthContext
+        let metadata: [WorkspaceMetadata]
+    }
+
+    private enum AuthRefreshPolicy {
+        static let deactivatedWorkspaceNotice = "该账号已被踢出 team 组织，请重新授权后再刷新。"
+        static let deactivatedAccountNotice = "账号被封禁，请检查邮箱"
+        static let authExpiredNotice = "授权过期，请重新登录授权。"
+    }
+
     private enum UsageRefreshPolicy {
         static let minimumRefreshIntervalSeconds: Int64 = 25
 
@@ -90,13 +111,19 @@ actor AccountsCoordinator {
             extractedAuthByStoredAccountID: reconciliation.extractedAuthByStoredAccountID
         )
         if reconciliation.didChange || didEnrich {
+            try persistCurrentAuthIfNeeded(
+                previousStore: try storeRepository.loadStore(),
+                updatedStore: store,
+                currentAuthSelection: currentAuthSelection
+            )
             try storeRepository.saveStore(store)
         }
+        let effectiveCurrentAuthSelection = currentAuthSelectionIdentifiers()
         let summaries = store.accountSummaries(
-            currentAccountKey: currentAuthSelection.accountKey,
-            currentVariantKey: currentAuthSelection.variantKey
+            currentAccountKey: effectiveCurrentAuthSelection.accountKey,
+            currentVariantKey: effectiveCurrentAuthSelection.variantKey
         )
-        cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        cacheAccountsList(store: store, currentAuthSelection: effectiveCurrentAuthSelection, summaries: summaries)
         logger.debug(
             category: .accounts,
             event: "list_succeeded",
@@ -184,7 +211,7 @@ actor AccountsCoordinator {
         let authJSON = try JSONValue.authJSONObject(from: draft.authJSONString)
         return try await importAccount(
             authJSON: authJSON,
-            customLabel: normalizedText(draft.label),
+            customLabel: Self.normalizedText(draft.label),
             preferredStoredAccountID: draft.storedAccountID,
             teamAlias: normalizeTeamAlias(draft.teamAlias),
             overwriteStoredTeamAlias: true,
@@ -204,7 +231,8 @@ actor AccountsCoordinator {
         rejectExistingMatchingAccountID: Bool = false
     ) async throws -> AccountSummary {
         let operationID = UUID().uuidString
-        var extracted = try authRepository.extractAuth(from: authJSON)
+        var workingAuthJSON = authJSON
+        var extracted = try authRepository.extractAuth(from: workingAuthJSON)
         logger.info(
             category: .accounts,
             event: "import_started",
@@ -221,9 +249,19 @@ actor AccountsCoordinator {
         var usageError: String?
 
         do {
-            usage = try await usageService.fetchUsage(accessToken: extracted.accessToken, accountID: extracted.accountID)
+            let usageContext = try await Self.fetchUsageWithAuthRecovery(
+                authJSON: workingAuthJSON,
+                authRepository: authRepository,
+                usageService: usageService,
+                chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                logger: logger,
+                operationID: operationID
+            )
+            workingAuthJSON = usageContext.authContext.authJSON
+            extracted = usageContext.authContext.extracted
+            usage = usageContext.usage
         } catch {
-            usageError = error.localizedDescription
+            usageError = Self.normalizedUsageErrorMessage(error.localizedDescription)
             logger.warning(
                 category: .accounts,
                 event: "import_usage_failed",
@@ -236,11 +274,15 @@ actor AccountsCoordinator {
             )
         }
         extracted.planType = usage?.planType ?? extracted.planType
-        if let remoteWorkspaceName = await resolveRemoteWorkspaceName(
-            for: extracted,
+        let remoteWorkspaceNameResolution = await resolveRemoteWorkspaceName(
+            authJSON: workingAuthJSON,
+            extracted: extracted,
             forceRemoteCheck: true,
             allowUnknownPlanWhenForced: true
-        ) {
+        )
+        workingAuthJSON = remoteWorkspaceNameResolution.authContext.authJSON
+        extracted = remoteWorkspaceNameResolution.authContext.extracted
+        if let remoteWorkspaceName = remoteWorkspaceNameResolution.workspaceName {
             extracted.teamName = remoteWorkspaceName
         }
 
@@ -274,7 +316,7 @@ actor AccountsCoordinator {
             planType: extracted.planType,
             teamName: extracted.teamName,
             teamAlias: teamAlias,
-            authJSON: authJSON,
+            authJSON: workingAuthJSON,
             addedAt: now,
             updatedAt: now,
             usage: usage,
@@ -347,7 +389,7 @@ actor AccountsCoordinator {
         }
 
         if shouldSetAsCurrent {
-            try authRepository.writeCurrentAuth(authJSON)
+            try authRepository.writeCurrentAuth(workingAuthJSON)
         }
 
         let currentAuthSelection = currentAuthSelectionIdentifiers()
@@ -548,6 +590,8 @@ actor AccountsCoordinator {
         let snapshot = try storeRepository.loadStore()
         let authRepository = self.authRepository
         let usageService = self.usageService
+        let chatGPTOAuthLoginService = self.chatGPTOAuthLoginService
+        let logger = self.logger
         let currentAuthSelection = currentAuthSelectionIdentifiers()
         let shouldPersistPartialUpdates = onPartialUpdate != nil
 
@@ -577,7 +621,9 @@ actor AccountsCoordinator {
                             now: now,
                             forceRefresh: force,
                             authRepository: authRepository,
-                            usageService: usageService
+                            usageService: usageService,
+                            chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                            logger: logger
                         )
                     }
                 }
@@ -615,7 +661,9 @@ actor AccountsCoordinator {
                     now: now,
                     forceRefresh: force,
                     authRepository: authRepository,
-                    usageService: usageService
+                    usageService: usageService,
+                    chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                    logger: logger
                 )
                 if refreshed.attemptedRefresh {
                     attemptedRefreshCount += 1
@@ -648,11 +696,18 @@ actor AccountsCoordinator {
             try storeRepository.saveStore(latest)
         }
 
-        let summaries = latest.accountSummaries(
-            currentAccountKey: currentAuthSelection.accountKey,
-            currentVariantKey: currentAuthSelection.variantKey
+        try persistCurrentAuthIfNeeded(
+            previousStore: snapshot,
+            updatedStore: latest,
+            currentAuthSelection: currentAuthSelection
         )
-        cacheAccountsList(store: latest, currentAuthSelection: currentAuthSelection, summaries: summaries)
+
+        let effectiveCurrentAuthSelection = currentAuthSelectionIdentifiers()
+        let summaries = latest.accountSummaries(
+            currentAccountKey: effectiveCurrentAuthSelection.accountKey,
+            currentVariantKey: effectiveCurrentAuthSelection.variantKey
+        )
+        cacheAccountsList(store: latest, currentAuthSelection: effectiveCurrentAuthSelection, summaries: summaries)
         let result = AccountsRefreshResult(
             accounts: summaries,
             failure: Self.refreshFailure(
@@ -729,19 +784,25 @@ actor AccountsCoordinator {
             operationID: operationID
         )
         var store = try storeRepository.loadStore()
+        let currentAuthSelection = currentAuthSelectionIdentifiers()
         let didChange = await enrichStoredWorkspaceMetadataIfNeeded(
             in: &store,
             forceRemoteCheck: forceRemoteCheck
         )
         if didChange {
+            try persistCurrentAuthIfNeeded(
+                previousStore: try storeRepository.loadStore(),
+                updatedStore: store,
+                currentAuthSelection: currentAuthSelection
+            )
             try storeRepository.saveStore(store)
         }
-        let currentAuthSelection = currentAuthSelectionIdentifiers()
+        let effectiveCurrentAuthSelection = currentAuthSelectionIdentifiers()
         let summaries = store.accountSummaries(
-            currentAccountKey: currentAuthSelection.accountKey,
-            currentVariantKey: currentAuthSelection.variantKey
+            currentAccountKey: effectiveCurrentAuthSelection.accountKey,
+            currentVariantKey: effectiveCurrentAuthSelection.variantKey
         )
-        cacheAccountsList(store: store, currentAuthSelection: currentAuthSelection, summaries: summaries)
+        cacheAccountsList(store: store, currentAuthSelection: effectiveCurrentAuthSelection, summaries: summaries)
         logger.info(
             category: .accounts,
             event: "refresh_workspace_metadata_completed",
@@ -760,7 +821,9 @@ actor AccountsCoordinator {
         now: Int64,
         forceRefresh: Bool,
         authRepository: AuthRepository,
-        usageService: UsageService
+        usageService: UsageService,
+        chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
+        logger: AppLogger
     ) async -> RefreshAccountResult {
         var account = account
         guard forceRefresh || UsageRefreshPolicy.shouldRefresh(account.usage, now: now) else {
@@ -773,16 +836,25 @@ actor AccountsCoordinator {
         }
 
         do {
-            let extracted = try authRepository.extractAuth(from: account.authJSON)
-            let usage = try await usageService.fetchUsage(
-                accessToken: extracted.accessToken,
-                accountID: extracted.accountID
+            let usageContext = try await fetchUsageWithAuthRecovery(
+                authJSON: account.authJSON,
+                authRepository: authRepository,
+                usageService: usageService,
+                chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                logger: logger,
+                operationID: UUID().uuidString
             )
-            account.usage = usage
+            let extracted = usageContext.authContext.extracted
+            account.usage = usageContext.usage
             account.usageError = nil
-            account.planType = extracted.planType ?? account.planType
+            account.authJSON = usageContext.authContext.authJSON
+            account.planType = usageContext.usage.planType ?? extracted.planType ?? account.planType
             if let teamName = normalizedTeamName(extracted.teamName) {
                 account.teamName = teamName
+            }
+            account.accountID = extracted.accountID
+            if let principalID = extracted.principalID {
+                account.principalID = principalID
             }
             account.email = extracted.email ?? account.email
             account.updatedAt = now
@@ -804,7 +876,7 @@ actor AccountsCoordinator {
                 )
             }
 
-            account.usageError = error.localizedDescription
+            account.usageError = normalizedUsageErrorMessage(error.localizedDescription)
             account.updatedAt = now
             return RefreshAccountResult(
                 account: account,
@@ -854,6 +926,207 @@ actor AccountsCoordinator {
         }
 
         return message
+    }
+
+    private static func fetchUsageWithAuthRecovery(
+        authJSON: JSONValue,
+        authRepository: AuthRepository,
+        usageService: UsageService,
+        chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
+        logger: AppLogger,
+        operationID: String
+    ) async throws -> UsageFetchContext {
+        var authContext = try ResolvedAuthContext(
+            authJSON: authJSON,
+            extracted: authRepository.extractAuth(from: authJSON)
+        )
+        do {
+            let usage = try await usageService.fetchUsage(
+                accessToken: authContext.extracted.accessToken,
+                accountID: authContext.extracted.accountID
+            )
+            guard shouldRetryWithTokenRefresh(errorMessage: nil, snapshot: usage) else {
+                return UsageFetchContext(authContext: authContext, usage: usage)
+            }
+
+            logger.warning(
+                category: .accounts,
+                event: "usage_refresh_retry_with_token_refresh",
+                message: "Retrying usage refresh after refreshing OAuth tokens.",
+                metadata: ["account_id": authContext.extracted.accountID],
+                operationID: operationID
+            )
+
+            do {
+                authContext = try await refreshAuthContext(
+                    from: authContext.authJSON,
+                    authRepository: authRepository,
+                    chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                    logger: logger,
+                    operationID: operationID
+                )
+                let refreshedUsage = try await usageService.fetchUsage(
+                    accessToken: authContext.extracted.accessToken,
+                    accountID: authContext.extracted.accountID
+                )
+                return UsageFetchContext(authContext: authContext, usage: refreshedUsage)
+            } catch {
+                return UsageFetchContext(authContext: authContext, usage: usage)
+            }
+        } catch {
+            let errorMessage = error.localizedDescription
+            guard shouldRetryWithTokenRefresh(errorMessage: errorMessage, snapshot: nil) else {
+                throw error
+            }
+
+            logger.warning(
+                category: .accounts,
+                event: "usage_refresh_retry_with_token_refresh",
+                message: "Retrying usage refresh after refreshing OAuth tokens.",
+                metadata: ["account_id": authContext.extracted.accountID],
+                operationID: operationID
+            )
+
+            authContext = try await refreshAuthContext(
+                from: authContext.authJSON,
+                authRepository: authRepository,
+                chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                logger: logger,
+                operationID: operationID
+            )
+            let refreshedUsage = try await usageService.fetchUsage(
+                accessToken: authContext.extracted.accessToken,
+                accountID: authContext.extracted.accountID
+            )
+            return UsageFetchContext(authContext: authContext, usage: refreshedUsage)
+        }
+    }
+
+    private static func fetchWorkspaceMetadataWithAuthRecovery(
+        authJSON: JSONValue,
+        authRepository: AuthRepository,
+        workspaceMetadataService: WorkspaceMetadataService,
+        chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
+        logger: AppLogger,
+        operationID: String
+    ) async throws -> WorkspaceMetadataFetchContext {
+        var authContext = try ResolvedAuthContext(
+            authJSON: authJSON,
+            extracted: authRepository.extractAuth(from: authJSON)
+        )
+
+        do {
+            let metadata = try await workspaceMetadataService.fetchWorkspaceMetadata(
+                accessToken: authContext.extracted.accessToken
+            )
+            return WorkspaceMetadataFetchContext(authContext: authContext, metadata: metadata)
+        } catch {
+            let errorMessage = error.localizedDescription
+            guard shouldRetryWithTokenRefresh(errorMessage: errorMessage, snapshot: nil) else {
+                throw error
+            }
+
+            logger.warning(
+                category: .accounts,
+                event: "workspace_refresh_retry_with_token_refresh",
+                message: "Retrying workspace metadata refresh after refreshing OAuth tokens.",
+                metadata: ["account_id": authContext.extracted.accountID],
+                operationID: operationID
+            )
+
+            authContext = try await refreshAuthContext(
+                from: authContext.authJSON,
+                authRepository: authRepository,
+                chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                logger: logger,
+                operationID: operationID
+            )
+            let metadata = try await workspaceMetadataService.fetchWorkspaceMetadata(
+                accessToken: authContext.extracted.accessToken
+            )
+            return WorkspaceMetadataFetchContext(authContext: authContext, metadata: metadata)
+        }
+    }
+
+    private static func refreshAuthContext(
+        from authJSON: JSONValue,
+        authRepository: AuthRepository,
+        chatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol,
+        logger: AppLogger,
+        operationID: String
+    ) async throws -> ResolvedAuthContext {
+        logger.info(
+            category: .accounts,
+            event: "oauth_token_refresh_started",
+            message: "Refreshing stored OAuth tokens for account refresh.",
+            operationID: operationID
+        )
+        let refreshedTokens = try await chatGPTOAuthLoginService.refreshChatGPTTokens(from: authJSON)
+        let refreshedAuthJSON = try authRepository.makeChatGPTAuth(from: refreshedTokens)
+        let extracted = try authRepository.extractAuth(from: refreshedAuthJSON)
+        logger.info(
+            category: .accounts,
+            event: "oauth_token_refresh_succeeded",
+            message: "Stored OAuth tokens refreshed for account refresh.",
+            metadata: ["account_id": extracted.accountID],
+            operationID: operationID
+        )
+        return ResolvedAuthContext(authJSON: refreshedAuthJSON, extracted: extracted)
+    }
+
+    private static func shouldRetryWithTokenRefresh(
+        errorMessage: String?,
+        snapshot: UsageSnapshot?
+    ) -> Bool {
+        if let snapshot, snapshot.planType == nil {
+            return true
+        }
+        guard let errorMessage else { return false }
+        let normalized = errorMessage.lowercased()
+        return normalized.contains("401")
+            || normalized.contains("unauthorized")
+            || normalized.contains("invalid_token")
+            || normalized.contains("deactivated_workspace")
+    }
+
+    private static func normalizedUsageErrorMessage(_ rawError: String) -> String {
+        let normalized = rawError.lowercased()
+        if normalized.contains("deactivated_workspace") {
+            return AuthRefreshPolicy.deactivatedWorkspaceNotice
+        }
+        if normalized.contains("your openai account has been deactivated")
+            || normalized.contains("account has been deactivated")
+            || normalized.contains("account deactivated")
+            || normalized.contains("deactivated_user")
+            || (normalized.contains("deactivated") && normalized.contains("check your email")) {
+            return AuthRefreshPolicy.deactivatedAccountNotice
+        }
+        if normalized.contains("refresh_token_reused")
+            || isInvalidRefreshGrant(normalized)
+            || normalized.contains("provided authentication token is expired")
+            || normalized.contains("your refresh token has already been used to generate a new access token")
+            || normalized.contains("refresh token expired")
+            || normalized.contains("refresh_token expired")
+            || normalized.contains("expired refresh token")
+            || normalized.contains("refresh token is expired")
+            || normalized.contains("refresh token revoked")
+            || normalized.contains("refresh_token_revoked")
+            || normalized.contains("refresh token invalid")
+            || normalized.contains("invalid refresh token")
+            || normalized.contains("please try signing in again")
+            || normalized.contains("token is expired")
+            || normalized.contains("auth.json 缺少 refresh_token") {
+            return AuthRefreshPolicy.authExpiredNotice
+        }
+        return rawError
+    }
+
+    private static func isInvalidRefreshGrant(_ normalizedError: String) -> Bool {
+        normalizedError.contains("invalid_grant")
+            && (normalizedError.contains("refresh")
+                || normalizedError.contains("expired")
+                || normalizedError.contains("revoked")
+                || normalizedError.contains("invalid"))
     }
 
     private static func isTransientNetworkError(_ error: URLError) -> Bool {
@@ -1000,27 +1273,43 @@ actor AccountsCoordinator {
                 #endif
                 directory = cached
             } else {
-                guard let fetched = try? await workspaceMetadataService.fetchWorkspaceMetadata(
-                    accessToken: extracted.accessToken
+                guard let fetchedContext = try? await Self.fetchWorkspaceMetadataWithAuthRecovery(
+                    authJSON: storedAccount.authJSON,
+                    authRepository: authRepository,
+                    workspaceMetadataService: workspaceMetadataService,
+                    chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+                    logger: logger,
+                    operationID: UUID().uuidString
                 ) else {
                     #if DEBUG
                     debugLog("workspace metadata fetch failed for accountID=\(extracted.accountID)")
                     #endif
                     continue
                 }
-                cachedDirectories[extracted.accessToken] = fetched
+
+                let fetched = fetchedContext.metadata
+                cachedDirectories[fetchedContext.authContext.extracted.accessToken] = fetched
+                if Self.applyAuthSnapshot(
+                    fetchedContext.authContext.authJSON,
+                    extracted: fetchedContext.authContext.extracted,
+                    to: &store.accounts[index]
+                ) {
+                    store.accounts[index].updatedAt = dateProvider.unixSecondsNow()
+                    didChange = true
+                }
                 #if DEBUG
                 debugLog("workspace metadata fetched for accountID=\(extracted.accountID); items=\(fetched.count)")
                 #endif
                 directory = fetched
             }
 
+            let effectiveAccountID = store.accounts[index].accountID
             guard let remoteWorkspaceName = Self.remoteWorkspaceName(
-                for: extracted.accountID,
+                for: effectiveAccountID,
                 in: directory
             ) else {
                 #if DEBUG
-                debugLog("workspace metadata returned no matching non-personal workspace for accountID=\(extracted.accountID)")
+                debugLog("workspace metadata returned no matching non-personal workspace for accountID=\(effectiveAccountID)")
                 #endif
                 continue
             }
@@ -1029,11 +1318,11 @@ actor AccountsCoordinator {
                 store.accounts[index].teamName = remoteWorkspaceName
                 didChange = true
                 #if DEBUG
-                debugLog("workspace metadata updated accountID=\(extracted.accountID) teamName=\(remoteWorkspaceName)")
+                debugLog("workspace metadata updated accountID=\(effectiveAccountID) teamName=\(remoteWorkspaceName)")
                 #endif
             } else {
                 #if DEBUG
-                debugLog("workspace metadata matched accountID=\(extracted.accountID) but teamName already up to date: \(remoteWorkspaceName)")
+                debugLog("workspace metadata matched accountID=\(effectiveAccountID) but teamName already up to date: \(remoteWorkspaceName)")
                 #endif
             }
         }
@@ -1056,25 +1345,38 @@ actor AccountsCoordinator {
     }
 
     private func resolveRemoteWorkspaceName(
-        for extracted: ExtractedAuth,
+        authJSON: JSONValue,
+        extracted: ExtractedAuth,
         forceRemoteCheck: Bool,
         allowUnknownPlanWhenForced: Bool = false
-    ) async -> String? {
-        guard let workspaceMetadataService else { return nil }
+    ) async -> (authContext: ResolvedAuthContext, workspaceName: String?) {
+        let authContext = ResolvedAuthContext(authJSON: authJSON, extracted: extracted)
+        guard let workspaceMetadataService else { return (authContext, nil) }
         guard shouldLookupRemoteWorkspaceName(
             storedTeamName: extracted.teamName,
             extracted: extracted,
             forceRemoteCheck: forceRemoteCheck,
             allowUnknownPlanWhenForced: allowUnknownPlanWhenForced
         ) else {
-            return extracted.teamName
+            return (authContext, extracted.teamName)
         }
-        guard let directory = try? await workspaceMetadataService.fetchWorkspaceMetadata(
-            accessToken: extracted.accessToken
+        guard let metadataContext = try? await Self.fetchWorkspaceMetadataWithAuthRecovery(
+            authJSON: authJSON,
+            authRepository: authRepository,
+            workspaceMetadataService: workspaceMetadataService,
+            chatGPTOAuthLoginService: chatGPTOAuthLoginService,
+            logger: logger,
+            operationID: UUID().uuidString
         ) else {
-            return extracted.teamName
+            return (authContext, extracted.teamName)
         }
-        return Self.remoteWorkspaceName(for: extracted.accountID, in: directory) ?? extracted.teamName
+        return (
+            metadataContext.authContext,
+            Self.remoteWorkspaceName(
+                for: metadataContext.authContext.extracted.accountID,
+                in: metadataContext.metadata
+            ) ?? metadataContext.authContext.extracted.teamName
+        )
     }
 
     private func shouldLookupRemoteWorkspaceName(
@@ -1151,6 +1453,49 @@ actor AccountsCoordinator {
         try authRepository.writeCurrentAuth(targetAccount.authJSON)
     }
 
+    private func persistCurrentAuthIfNeeded(
+        previousStore: AccountsStore,
+        updatedStore: AccountsStore,
+        currentAuthSelection: (accountKey: String?, variantKey: String?)
+    ) throws {
+        guard let currentStoredAccountID = matchingCurrentStoredAccountID(
+            in: previousStore,
+            currentAuthSelection: currentAuthSelection
+        ),
+        let updatedCurrentAccount = updatedStore.accounts.first(where: { $0.id == currentStoredAccountID }),
+        let previousCurrentAccount = previousStore.accounts.first(where: { $0.id == currentStoredAccountID }) else {
+            return
+        }
+
+        guard previousCurrentAccount.authJSON != updatedCurrentAccount.authJSON else {
+            return
+        }
+
+        try authRepository.writeCurrentAuth(updatedCurrentAccount.authJSON)
+    }
+
+    private func matchingCurrentStoredAccountID(
+        in store: AccountsStore,
+        currentAuthSelection: (accountKey: String?, variantKey: String?)
+    ) -> String? {
+        if let exactVariantMatch = store.accounts.first(where: {
+            $0.matchesSelection(
+                accountKey: currentAuthSelection.accountKey,
+                variantKey: currentAuthSelection.variantKey
+            )
+        }) {
+            return exactVariantMatch.id
+        }
+
+        guard let accountKey = currentAuthSelection.accountKey else {
+            return nil
+        }
+
+        return store.accounts.first(where: {
+            $0.matchesSelection(accountKey: accountKey, variantKey: nil)
+        })?.id
+    }
+
     @discardableResult
     private func backfillCurrentLiveAuthIfNeeded(
         in store: inout AccountsStore,
@@ -1167,7 +1512,7 @@ actor AccountsCoordinator {
         }
 
         var currentAccount = store.accounts[currentIndex]
-        let didChange = applyLiveAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
+        let didChange = Self.applyAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
         guard didChange else { return false }
 
         currentAccount.updatedAt = dateProvider.unixSecondsNow()
@@ -1208,7 +1553,7 @@ actor AccountsCoordinator {
         }
 
         var currentAccount = store.accounts[currentIndex]
-        var didChange = applyLiveAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
+        var didChange = Self.applyAuthSnapshot(liveAuth, extracted: extracted, to: &currentAccount)
         if didChange {
             currentAccount.updatedAt = dateProvider.unixSecondsNow()
             store.accounts[currentIndex] = currentAccount
@@ -1227,7 +1572,7 @@ actor AccountsCoordinator {
         return didChange
     }
 
-    private func applyLiveAuthSnapshot(
+    private static func applyAuthSnapshot(
         _ liveAuth: JSONValue,
         extracted: ExtractedAuth,
         to account: inout StoredAccount
@@ -1250,13 +1595,13 @@ actor AccountsCoordinator {
             didChange = true
         }
 
-        if let email = normalizedText(extracted.email),
+        if let email = Self.normalizedText(extracted.email),
            account.email != email {
             account.email = email
             didChange = true
         }
 
-        if let planType = normalizedText(extracted.planType),
+        if let planType = Self.normalizedText(extracted.planType),
            account.planType != planType {
             account.planType = planType
             didChange = true
@@ -1326,7 +1671,7 @@ actor AccountsCoordinator {
     }
     #endif
 
-    private func normalizedText(_ value: String?) -> String? {
+    private static func normalizedText(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

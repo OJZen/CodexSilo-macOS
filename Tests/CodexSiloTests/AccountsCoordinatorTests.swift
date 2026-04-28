@@ -232,10 +232,11 @@ final class AccountsCoordinatorTests: XCTestCase {
         )
 
         let first = try await coordinator.listAccounts()
+        let extractCallCountAfterFirst = authRepository.extractCallCount
         let second = try await coordinator.listAccounts()
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(authRepository.extractCallCount, 2)
+        XCTAssertEqual(authRepository.extractCallCount, extractCallCountAfterFirst)
     }
 
     func testImportCurrentAuthPrefersRemoteWorkspaceMetadata() async throws {
@@ -1082,6 +1083,268 @@ final class AccountsCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.accounts.count, 2)
         XCTAssertNil(result.accounts.first(where: { $0.accountID == "account-2" })?.usageError)
         XCTAssertNil(try storeRepository.loadStore().accounts.first(where: { $0.accountID == "account-2" })?.usageError)
+    }
+
+    func testRefreshAllUsageRetriesAfterTokenRefreshAndPersistsUpdatedAuth() async throws {
+        let now: Int64 = 1_763_216_000
+        let expiredAuth = makeTestAuthJSON(
+            accessToken: "expired-token",
+            refreshToken: "refresh-token-1",
+            idToken: "id-token-1",
+            accountID: "account-1"
+        )
+        let refreshedUsage = UsageSnapshot(
+            fetchedAt: now,
+            planType: "pro",
+            fiveHour: UsageWindow(usedPercent: 10, windowSeconds: 18_000, resetAt: now + 1_800),
+            oneWeek: UsageWindow(usedPercent: 15, windowSeconds: 604_800, resetAt: now + 86_400),
+            credits: nil
+        )
+        let authRepository = RefreshCapableAuthRepository(
+            extractedByAccessToken: [
+                "expired-token": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "expired-token",
+                    email: "refresh@example.com",
+                    planType: nil,
+                    teamName: nil
+                ),
+                "fresh-token": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "fresh-token",
+                    email: "refresh@example.com",
+                    planType: "pro",
+                    teamName: nil
+                )
+            ],
+            currentAuth: expiredAuth
+        )
+        let usageService = AccessTokenUsageService(
+            results: [
+                "expired-token": .failure(AppError.network("https://chatgpt.com/backend-api/wham/usage -> 401: invalid_token")),
+                "fresh-token": .success(refreshedUsage)
+            ]
+        )
+        let loginService = RefreshingChatGPTOAuthLoginService(
+            refreshedTokensByRefreshToken: [
+                "refresh-token-1": .success(
+                    ChatGPTOAuthTokens(
+                        accessToken: "fresh-token",
+                        refreshToken: "refresh-token-2",
+                        idToken: "id-token-2",
+                        apiKey: nil
+                    )
+                )
+            ]
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Refresh",
+                        email: "refresh@example.com",
+                        accountID: "account-1",
+                        planType: nil,
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: expiredAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: usageService,
+            chatGPTOAuthLoginService: loginService,
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let result = try await coordinator.refreshAllUsageResult(force: true)
+
+        XCTAssertNil(result.failure)
+        XCTAssertEqual(usageService.seenAccessTokens, ["expired-token", "fresh-token"])
+        XCTAssertEqual(loginService.refreshCallCount, 1)
+        XCTAssertEqual(result.accounts.first?.usage, refreshedUsage)
+        XCTAssertEqual(
+            try authRepository.extractAuth(from: try XCTUnwrap(authRepository.writtenCurrentAuth)).accessToken,
+            "fresh-token"
+        )
+        XCTAssertEqual(
+            try authRepository.extractAuth(
+                from: try XCTUnwrap(storeRepository.loadStore().accounts.first?.authJSON)
+            ).accessToken,
+            "fresh-token"
+        )
+    }
+
+    func testRefreshWorkspaceMetadataRetriesAfterTokenRefresh() async throws {
+        let now: Int64 = 1_763_216_000
+        let expiredAuth = makeTestAuthJSON(
+            accessToken: "expired-token",
+            refreshToken: "refresh-token-1",
+            idToken: "id-token-1",
+            accountID: "account-1"
+        )
+        let authRepository = RefreshCapableAuthRepository(
+            extractedByAccessToken: [
+                "expired-token": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "expired-token",
+                    email: "workspace@example.com",
+                    planType: "team",
+                    teamName: nil
+                ),
+                "fresh-token": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "fresh-token",
+                    email: "workspace@example.com",
+                    planType: "team",
+                    teamName: nil
+                )
+            ],
+            currentAuth: expiredAuth
+        )
+        let workspaceService = AccessTokenWorkspaceMetadataService(
+            results: [
+                "expired-token": .failure(AppError.network("https://chatgpt.com/backend-api/accounts -> 401: invalid_token")),
+                "fresh-token": .success([
+                    WorkspaceMetadata(accountID: "account-1", workspaceName: "Team Alpha", structure: "team")
+                ])
+            ]
+        )
+        let loginService = RefreshingChatGPTOAuthLoginService(
+            refreshedTokensByRefreshToken: [
+                "refresh-token-1": .success(
+                    ChatGPTOAuthTokens(
+                        accessToken: "fresh-token",
+                        refreshToken: "refresh-token-2",
+                        idToken: "id-token-2",
+                        apiKey: nil
+                    )
+                )
+            ]
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Workspace",
+                        email: "workspace@example.com",
+                        accountID: "account-1",
+                        planType: "team",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: expiredAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: CountingUsageService(
+                result: UsageSnapshot(
+                    fetchedAt: now,
+                    planType: "team",
+                    fiveHour: nil,
+                    oneWeek: nil,
+                    credits: nil
+                )
+            ),
+            workspaceMetadataService: workspaceService,
+            chatGPTOAuthLoginService: loginService,
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let accounts = try await coordinator.refreshWorkspaceMetadata(forceRemoteCheck: true)
+
+        XCTAssertEqual(accounts.first?.teamName, "Team Alpha")
+        XCTAssertEqual(workspaceService.seenAccessTokens, ["expired-token", "fresh-token"])
+        XCTAssertEqual(loginService.refreshCallCount, 1)
+        XCTAssertEqual(
+            try authRepository.extractAuth(from: try XCTUnwrap(authRepository.writtenCurrentAuth)).accessToken,
+            "fresh-token"
+        )
+    }
+
+    func testRefreshAllUsageNormalizesDeactivatedWorkspaceAfterRefreshFailure() async throws {
+        let now: Int64 = 1_763_216_000
+        let expiredAuth = makeTestAuthJSON(
+            accessToken: "expired-token",
+            refreshToken: "refresh-token-1",
+            idToken: "id-token-1",
+            accountID: "account-1"
+        )
+        let authRepository = RefreshCapableAuthRepository(
+            extractedByAccessToken: [
+                "expired-token": ExtractedAuth(
+                    accountID: "account-1",
+                    accessToken: "expired-token",
+                    email: "workspace@example.com",
+                    planType: "team",
+                    teamName: nil
+                )
+            ],
+            currentAuth: expiredAuth
+        )
+        let usageService = AccessTokenUsageService(
+            results: [
+                "expired-token": .failure(AppError.network("https://chatgpt.com/backend-api/wham/usage -> 401: invalid_token"))
+            ]
+        )
+        let loginService = RefreshingChatGPTOAuthLoginService(
+            refreshedTokensByRefreshToken: [
+                "refresh-token-1": .failure(
+                    AppError.network("https://auth.openai.com/oauth/token -> 400: deactivated_workspace")
+                )
+            ]
+        )
+        let storeRepository = InMemoryAccountsStoreRepository(
+            store: AccountsStore(
+                accounts: [
+                    StoredAccount(
+                        id: "acct-1",
+                        label: "Workspace",
+                        email: "workspace@example.com",
+                        accountID: "account-1",
+                        planType: "team",
+                        teamName: nil,
+                        teamAlias: nil,
+                        authJSON: expiredAuth,
+                        addedAt: now,
+                        updatedAt: now,
+                        usage: nil,
+                        usageError: nil
+                    )
+                ]
+            )
+        )
+        let coordinator = AccountsCoordinator(
+            storeRepository: storeRepository,
+            authRepository: authRepository,
+            usageService: usageService,
+            chatGPTOAuthLoginService: loginService,
+            dateProvider: FixedDateProvider(now: now)
+        )
+
+        let result = try await coordinator.refreshAllUsageResult(force: true)
+
+        XCTAssertNil(result.failure)
+        XCTAssertEqual(
+            result.accounts.first?.usageError,
+            "该账号已被踢出 team 组织，请重新授权后再刷新。"
+        )
     }
 
     @MainActor
@@ -2532,6 +2795,24 @@ private final class ResultUsageService: UsageService, @unchecked Sendable {
     }
 }
 
+private final class AccessTokenUsageService: UsageService, @unchecked Sendable {
+    private let results: [String: Result<UsageSnapshot, Error>]
+    private(set) var seenAccessTokens: [String] = []
+
+    init(results: [String: Result<UsageSnapshot, Error>]) {
+        self.results = results
+    }
+
+    func fetchUsage(accessToken: String, accountID: String) async throws -> UsageSnapshot {
+        _ = accountID
+        seenAccessTokens.append(accessToken)
+        guard let result = results[accessToken] else {
+            throw AppError.invalidData("Missing usage result for access token \(accessToken)")
+        }
+        return try result.get()
+    }
+}
+
 private struct FixedDateProvider: DateProviding {
     let now: Int64
 
@@ -2565,6 +2846,23 @@ private final class RecordingWorkspaceMetadataService: WorkspaceMetadataService,
         _ = accessToken
         callCount += 1
         return metadata
+    }
+}
+
+private final class AccessTokenWorkspaceMetadataService: WorkspaceMetadataService, @unchecked Sendable {
+    private let results: [String: Result<[WorkspaceMetadata], Error>]
+    private(set) var seenAccessTokens: [String] = []
+
+    init(results: [String: Result<[WorkspaceMetadata], Error>]) {
+        self.results = results
+    }
+
+    func fetchWorkspaceMetadata(accessToken: String) async throws -> [WorkspaceMetadata] {
+        seenAccessTokens.append(accessToken)
+        guard let result = results[accessToken] else {
+            throw AppError.invalidData("Missing workspace result for access token \(accessToken)")
+        }
+        return try result.get()
     }
 }
 
@@ -2990,6 +3288,66 @@ private final class PlanVariantAuthRepository: AuthRepository, @unchecked Sendab
     func currentAuthAccountID() -> String? { nil }
 }
 
+private final class RefreshCapableAuthRepository: AuthRepository, @unchecked Sendable {
+    private let extractedByAccessToken: [String: ExtractedAuth]
+    private var currentAuthValue: JSONValue?
+    private(set) var writtenCurrentAuth: JSONValue?
+
+    init(extractedByAccessToken: [String: ExtractedAuth], currentAuth: JSONValue?) {
+        self.extractedByAccessToken = extractedByAccessToken
+        self.currentAuthValue = currentAuth
+    }
+
+    func readCurrentAuth() throws -> JSONValue {
+        currentAuthValue ?? .null
+    }
+
+    func readCurrentAuthOptional() throws -> JSONValue? {
+        currentAuthValue
+    }
+
+    func readAuth(from url: URL) throws -> JSONValue {
+        _ = url
+        return .null
+    }
+
+    func writeCurrentAuth(_ auth: JSONValue) throws {
+        writtenCurrentAuth = auth
+        currentAuthValue = auth
+    }
+
+    func removeCurrentAuth() throws {
+        currentAuthValue = nil
+    }
+
+    func makeChatGPTAuth(from tokens: ChatGPTOAuthTokens) throws -> JSONValue {
+        guard let extracted = extractedByAccessToken[tokens.accessToken] else {
+            throw AppError.invalidData("Missing extracted auth for access token \(tokens.accessToken)")
+        }
+        return makeTestAuthJSON(
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            idToken: tokens.idToken,
+            accountID: extracted.accountID
+        )
+    }
+
+    func extractAuth(from auth: JSONValue) throws -> ExtractedAuth {
+        guard let accessToken = auth["tokens"]?["access_token"]?.stringValue,
+              let extracted = extractedByAccessToken[accessToken] else {
+            throw AppError.invalidData("Missing extracted auth for test payload")
+        }
+        return extracted
+    }
+
+    func currentAuthAccountID() -> String? {
+        guard let auth = (try? readCurrentAuthOptional()) ?? nil else {
+            return nil
+        }
+        return try? extractAuth(from: auth).accountID
+    }
+}
+
 private actor PartialUpdateRecorder {
     private var snapshots: [[AccountSummary]] = []
 
@@ -3007,4 +3365,49 @@ private final class StubChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtoc
         _ = timeoutSeconds
         return ChatGPTOAuthTokens(accessToken: "", refreshToken: "", idToken: "", apiKey: nil)
     }
+
+    func refreshChatGPTTokens(from auth: JSONValue) async throws -> ChatGPTOAuthTokens {
+        _ = auth
+        return ChatGPTOAuthTokens(accessToken: "", refreshToken: "", idToken: "", apiKey: nil)
+    }
+}
+
+private final class RefreshingChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @unchecked Sendable {
+    private let refreshedTokensByRefreshToken: [String: Result<ChatGPTOAuthTokens, Error>]
+    private(set) var refreshCallCount = 0
+
+    init(refreshedTokensByRefreshToken: [String: Result<ChatGPTOAuthTokens, Error>]) {
+        self.refreshedTokensByRefreshToken = refreshedTokensByRefreshToken
+    }
+
+    func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens {
+        _ = timeoutSeconds
+        return ChatGPTOAuthTokens(accessToken: "", refreshToken: "", idToken: "", apiKey: nil)
+    }
+
+    func refreshChatGPTTokens(from auth: JSONValue) async throws -> ChatGPTOAuthTokens {
+        refreshCallCount += 1
+        guard let refreshToken = auth["tokens"]?["refresh_token"]?.stringValue,
+              let result = refreshedTokensByRefreshToken[refreshToken] else {
+            throw AppError.invalidData("Missing refresh token handler for test auth")
+        }
+        return try result.get()
+    }
+}
+
+private func makeTestAuthJSON(
+    accessToken: String,
+    refreshToken: String,
+    idToken: String,
+    accountID: String
+) -> JSONValue {
+    .object([
+        "auth_mode": .string("chatgpt"),
+        "tokens": .object([
+            "access_token": .string(accessToken),
+            "refresh_token": .string(refreshToken),
+            "id_token": .string(idToken),
+            "account_id": .string(accountID)
+        ])
+    ])
 }

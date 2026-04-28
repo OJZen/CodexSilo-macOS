@@ -103,6 +103,81 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         })
     }
 
+    func refreshChatGPTTokens(from auth: JSONValue) async throws -> ChatGPTOAuthTokens {
+        let operationID = UUID().uuidString
+        let startedAt = Date()
+        let storedTokens = try Self.storedTokens(from: auth)
+        let issuer = (try? Self.issuer(fromIDToken: storedTokens.idToken)) ?? Configuration.issuer
+
+        var request = URLRequest(url: Self.endpointURL("/oauth/token", issuer: issuer))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var formItems: [(String, String)] = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", storedTokens.refreshToken)
+        ]
+        if let clientID = try? Self.clientID(fromIDToken: storedTokens.idToken) {
+            formItems.append(("client_id", clientID))
+        } else {
+            formItems.append(("client_id", Configuration.clientID))
+        }
+        request.httpBody = Self.formEncodedBody(formItems)
+
+        logger.info(
+            category: .auth,
+            event: "oauth_token_refresh_started",
+            message: "Starting ChatGPT OAuth token refresh.",
+            operationID: operationID
+        )
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error(
+                category: .auth,
+                event: "oauth_token_refresh_invalid_response",
+                message: "OAuth token refresh returned a non-HTTP response.",
+                operationID: operationID
+            )
+            throw AppError.network(L10n.tr("error.oauth.token_exchange_failed_format", L10n.tr("error.usage.invalid_response")))
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            let detail = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = detail.isEmpty ? "HTTP \(httpResponse.statusCode)" : String(detail.prefix(200))
+            logger.error(
+                category: .auth,
+                event: "oauth_token_refresh_failed",
+                message: "OAuth token refresh failed.",
+                metadata: [
+                    "status_code": String(httpResponse.statusCode),
+                    "detail": message
+                ],
+                operationID: operationID
+            )
+            throw AppError.network(L10n.tr("error.oauth.token_exchange_failed_format", message))
+        }
+
+        let refreshedTokens = try JSONDecoder().decode(RefreshedTokenExchangeResponse.self, from: data)
+        let effectiveIDToken = refreshedTokens.idToken ?? storedTokens.idToken
+        let effectiveRefreshToken = refreshedTokens.refreshToken ?? storedTokens.refreshToken
+        let apiKey = try? await Self.exchangeIDTokenForAPIKey(session: session, idToken: effectiveIDToken)
+        logger.info(
+            category: .auth,
+            event: "oauth_token_refresh_succeeded",
+            message: "ChatGPT OAuth token refresh completed.",
+            metadata: ["duration_ms": String(Int(Date().timeIntervalSince(startedAt) * 1_000))],
+            operationID: operationID
+        )
+        return ChatGPTOAuthTokens(
+            accessToken: refreshedTokens.accessToken,
+            refreshToken: effectiveRefreshToken,
+            idToken: effectiveIDToken,
+            apiKey: apiKey
+        )
+    }
+
     private func beginAuthorizationSession(
         url: URL,
         callback: OAuthCallbackBox<ChatGPTOAuthTokens>,
@@ -372,6 +447,33 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         return payload.accessToken
     }
 
+    private static func storedTokens(from auth: JSONValue) throws -> StoredChatGPTTokens {
+        let tokens: [String: JSONValue]
+        if let object = auth["tokens"]?.objectValue {
+            tokens = object
+        } else if let object = auth.objectValue,
+                  object["access_token"]?.stringValue != nil,
+                  object["id_token"]?.stringValue != nil {
+            tokens = object
+        } else {
+            throw AppError.unauthorized(L10n.tr("error.auth.no_chatgpt_token"))
+        }
+
+        guard let idToken = tokens["id_token"]?.stringValue,
+              !idToken.isEmpty else {
+            throw AppError.invalidData(L10n.tr("error.auth.missing_id_token"))
+        }
+        guard let refreshToken = tokens["refresh_token"]?.stringValue,
+              !refreshToken.isEmpty else {
+            throw AppError.unauthorized("auth.json 缺少 refresh_token")
+        }
+
+        return StoredChatGPTTokens(
+            idToken: idToken,
+            refreshToken: refreshToken
+        )
+    }
+
     private func makeAuthorizeURL(
         redirectURI: String,
         pkce: PKCECodes,
@@ -450,6 +552,50 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         return accountID
     }
 
+    private static func issuer(fromIDToken idToken: String) throws -> URL {
+        let segments = idToken.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count > 1 else {
+            throw AppError.invalidData(L10n.tr("error.auth.id_token_invalid_format"))
+        }
+
+        let payload = try decodeBase64URL(String(segments[1]))
+        let object = try JSONSerialization.jsonObject(with: payload)
+        guard let json = try? JSONValue.from(any: object),
+              let issuerString = json["iss"]?.stringValue,
+              let issuer = URL(string: issuerString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            return Configuration.issuer
+        }
+        return issuer
+    }
+
+    private static func clientID(fromIDToken idToken: String) throws -> String {
+        let segments = idToken.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count > 1 else {
+            throw AppError.invalidData(L10n.tr("error.auth.id_token_invalid_format"))
+        }
+
+        let payload = try decodeBase64URL(String(segments[1]))
+        let object = try JSONSerialization.jsonObject(with: payload)
+        guard let json = try? JSONValue.from(any: object) else {
+            return Configuration.clientID
+        }
+
+        if let audience = json["aud"]?.stringValue,
+           !audience.isEmpty {
+            return audience
+        }
+
+        if let audiences = json["aud"]?.arrayValue {
+            for audience in audiences {
+                if let value = audience.stringValue, !value.isEmpty {
+                    return value
+                }
+            }
+        }
+
+        return Configuration.clientID
+    }
+
     private static func decodeBase64URL(_ value: String) throws -> Data {
         var base64 = value
             .replacingOccurrences(of: "-", with: "+")
@@ -479,9 +625,9 @@ final class OpenAIChatGPTOAuthLoginService: ChatGPTOAuthLoginServiceProtocol, @u
         value.addingPercentEncoding(withAllowedCharacters: .oauthFormAllowed) ?? value
     }
 
-    private static func endpointURL(_ path: String) -> URL {
-        guard let url = URL(string: path, relativeTo: Configuration.issuer)?.absoluteURL else {
-            return Configuration.issuer
+    private static func endpointURL(_ path: String, issuer: URL = Configuration.issuer) -> URL {
+        guard let url = URL(string: path, relativeTo: issuer)?.absoluteURL else {
+            return issuer
         }
         return url
     }
@@ -628,6 +774,23 @@ private struct TokenExchangeResponse: Decodable {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
     }
+}
+
+private struct RefreshedTokenExchangeResponse: Decodable {
+    let idToken: String?
+    let accessToken: String
+    let refreshToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case idToken = "id_token"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+    }
+}
+
+private struct StoredChatGPTTokens {
+    let idToken: String
+    let refreshToken: String
 }
 
 private struct APIKeyExchangeResponse: Decodable {

@@ -2,7 +2,7 @@ import Foundation
 
 final class DefaultWorkspaceMetadataService: WorkspaceMetadataService, @unchecked Sendable {
     private enum RequestPolicy {
-        static let timeout: TimeInterval = 5
+        static let timeout: TimeInterval = 18
         static let scope = "workspace-metadata"
     }
 

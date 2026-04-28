@@ -52,6 +52,7 @@ protocol UpdateCheckingService: Sendable {
 
 protocol ChatGPTOAuthLoginServiceProtocol: Sendable {
     func signInWithChatGPT(timeoutSeconds: TimeInterval) async throws -> ChatGPTOAuthTokens
+    func refreshChatGPTTokens(from auth: JSONValue) async throws -> ChatGPTOAuthTokens
 }
 
 protocol LocalFileMonitorServiceProtocol: AnyObject, Sendable {
